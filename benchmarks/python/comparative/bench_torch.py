@@ -116,6 +116,70 @@ def relu(x):
 
 
 @torch.no_grad()
+def leaky_relu(x):
+    y = x
+    for i in range(100):
+        y = torch.nn.functional.leaky_relu(y)
+    sync_if_needed(x)
+
+
+@torch.no_grad()
+def elu(x):
+    y = x
+    for i in range(100):
+        y = torch.nn.functional.elu(y)
+    sync_if_needed(x)
+
+
+@torch.no_grad()
+def celu(x):
+    y = x
+    for i in range(100):
+        y = torch.nn.functional.celu(y)
+    sync_if_needed(x)
+
+
+@torch.no_grad()
+def relu6(x):
+    y = x
+    for i in range(100):
+        y = torch.nn.functional.relu6(y)
+    sync_if_needed(x)
+
+
+@torch.no_grad()
+def softplus(x):
+    y = x
+    for i in range(100):
+        y = torch.nn.functional.softplus(y)
+    sync_if_needed(x)
+
+
+@torch.no_grad()
+def log_sigmoid(x):
+    y = x
+    for i in range(100):
+        y = torch.nn.functional.logsigmoid(y)
+    sync_if_needed(x)
+
+
+@torch.no_grad()
+def prelu(x: torch.Tensor) -> torch.Tensor:
+    y = x
+    for _ in range(100):
+        y = torch.nn.functional.prelu(y, torch.ones(1).to(y.device))
+    sync_if_needed(x)
+
+
+@torch.no_grad()
+def mish(x: torch.Tensor) -> torch.Tensor:
+    y = x
+    for _ in range(100):
+        return torch.nn.functional.mish(y)
+    sync_if_needed(x)
+
+
+@torch.no_grad()
 def scalar_mult(x):
     y = x
     for i in range(100):
@@ -206,6 +270,14 @@ def topk(axis, x):
     ys = []
     for i in range(10):
         ys.append(torch.topk(x, k, dim=axis)[0])
+    sync_if_needed(x)
+
+
+@torch.no_grad()
+def selu(x):
+    y = x
+    for i in range(100):
+        y = torch.nn.functional.selu(y)
     sync_if_needed(x)
 
 
@@ -302,6 +374,28 @@ if __name__ == "__main__":
     elif args.benchmark == "relu":
         print(bench(relu, x))
 
+    elif args.benchmark == "leaky_relu":
+        print(bench(leaky_relu, x))
+
+    elif args.benchmark == "elu":
+        print(bench(elu, x))
+
+    elif args.benchmark == "relu6":
+        print(bench(relu6, x))
+
+    elif args.benchmark == "softplus":
+        print(bench(softplus, x))
+
+    elif args.benchmark == "celu":
+        print(bench(celu, x))
+
+    elif args.benchmark == "log_sigmoid":
+        print(bench(log_sigmoid, x))
+
+    elif args.benchmark == "prelu":
+        print(bench(prelu, x))
+    elif args.benchmark == "mish":
+        print(bench(mish, x))
     elif args.benchmark == "scalar_mul":
         print(bench(scalar_mult, x))
 

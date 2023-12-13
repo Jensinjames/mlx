@@ -236,6 +236,24 @@ class TestOps(mlx_tests.MLXTestCase):
         self.assertEqual(z.dtype, mx.float32)
         self.assertEqual(z.item(), 0.5)
 
+        x = x.astype(mx.float16)
+        z = x / 4.0
+        self.assertEqual(z.dtype, mx.float16)
+
+        x = x.astype(mx.float16)
+        z = 4.0 / x
+        self.assertEqual(z.dtype, mx.float16)
+
+        x = mx.array(5)
+        y = mx.array(2)
+        z = x / y
+        self.assertEqual(z.dtype, mx.float32)
+        self.assertEqual(z.item(), 2.5)
+
+        z = x // y
+        self.assertEqual(z.dtype, mx.int32)
+        self.assertEqual(z.item(), 2)
+
     def test_remainder(self):
         for dt in [mx.int32, mx.float32]:
             x = mx.array(2, dtype=dt)
@@ -1304,6 +1322,31 @@ class TestOps(mlx_tests.MLXTestCase):
                         if kth >= 0:
                             d_np = np.take(b_mx, np.arange(kth), axis=axis)
                             self.assertTrue(np.all(d_np <= c_mx))
+
+    def test_large_binary(self):
+        a = mx.ones([1000, 2147484], mx.int8)
+        b = mx.ones([2147484], mx.int8)
+        self.assertEqual((a + b)[0, 0].item(), 2)
+
+    def test_eye(self):
+        eye_matrix = mx.eye(3)
+        np_eye_matrix = np.eye(3)
+        self.assertTrue(np.array_equal(eye_matrix, np_eye_matrix))
+
+        # Test for non-square matrix
+        eye_matrix = mx.eye(3, 4)
+        np_eye_matrix = np.eye(3, 4)
+        self.assertTrue(np.array_equal(eye_matrix, np_eye_matrix))
+
+        # Test with positive k parameter
+        eye_matrix = mx.eye(3, 4, k=1)
+        np_eye_matrix = np.eye(3, 4, k=1)
+        self.assertTrue(np.array_equal(eye_matrix, np_eye_matrix))
+
+        # Test with negative k parameter
+        eye_matrix = mx.eye(5, 6, k=-2)
+        np_eye_matrix = np.eye(5, 6, k=-2)
+        self.assertTrue(np.array_equal(eye_matrix, np_eye_matrix))
 
 
 if __name__ == "__main__":
