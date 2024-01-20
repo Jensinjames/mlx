@@ -73,6 +73,12 @@ struct UseDefaultBinaryOp {
     // Should we throw? This should normally never be called.
     assert(false);
   }
+
+  template <typename T, typename U>
+  void operator()(const T* a, const T* b, U* dst_a, U* dst_b, int size) {
+    // Should we throw? This should normally never be called.
+    assert(false);
+  }
 };
 
 template <typename T, typename U, typename Op>
@@ -86,6 +92,18 @@ struct DefaultVectorScalar {
     while (size-- > 0) {
       *dst = op(*a, scalar);
       dst++;
+      a++;
+    }
+  }
+
+  void operator()(const T* a, const T* b, U* dst_a, U* dst_b, int size) {
+    T scalar = *b;
+    while (size-- > 0) {
+      auto dst = op(*a, scalar);
+      *dst_a = dst.first;
+      *dst_b = dst.second;
+      dst_a++;
+      dst_b++;
       a++;
     }
   }
@@ -105,6 +123,18 @@ struct DefaultScalarVector {
       b++;
     }
   }
+
+  void operator()(const T* a, const T* b, U* dst_a, U* dst_b, int size) {
+    T scalar = *a;
+    while (size-- > 0) {
+      auto dst = op(scalar, *b);
+      *dst_a = dst.first;
+      *dst_b = dst.second;
+      dst_a++;
+      dst_b++;
+      b++;
+    }
+  }
 };
 
 template <typename T, typename U, typename Op>
@@ -117,6 +147,18 @@ struct DefaultVectorVector {
     while (size-- > 0) {
       *dst = op(*a, *b);
       dst++;
+      a++;
+      b++;
+    }
+  }
+
+  void operator()(const T* a, const T* b, U* dst_a, U* dst_b, int size) {
+    while (size-- > 0) {
+      auto dst = op(*a, *b);
+      *dst_a = dst.first;
+      *dst_b = dst.second;
+      dst_a++;
+      dst_b++;
       a++;
       b++;
     }

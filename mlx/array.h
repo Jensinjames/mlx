@@ -1,5 +1,4 @@
 // Copyright © 2023 Apple Inc.
-
 #pragma once
 #include <algorithm>
 #include <cstdint>
@@ -116,11 +115,11 @@ class array {
   };
 
   /** Evaluate the array. */
-  void eval(bool retain_graph = false);
+  void eval();
 
   /** Get the value from a scalar array. */
   template <typename T>
-  T item(bool retain_graph = false);
+  T item();
 
   struct ArrayIterator {
     using iterator_category = std::random_access_iterator_tag;
@@ -128,11 +127,7 @@ class array {
     using value_type = const array;
     using reference = value_type;
 
-    explicit ArrayIterator(const array& arr, int idx = 0) : arr(arr), idx(idx) {
-      if (arr.ndim() == 0) {
-        throw std::invalid_argument("Cannot iterate over 0-d array.");
-      }
-    }
+    explicit ArrayIterator(const array& arr, int idx = 0);
 
     reference operator*() const;
 
@@ -154,8 +149,8 @@ class array {
     };
 
    private:
-    int idx;
     const array& arr;
+    int idx;
   };
 
   ArrayIterator begin() const {
@@ -174,12 +169,23 @@ class array {
   array(
       const std::vector<int>& shape,
       Dtype dtype,
-      std::unique_ptr<Primitive> primitive,
+      std::shared_ptr<Primitive> primitive,
+      const std::vector<array>& inputs);
+
+  static std::vector<array> make_arrays(
+      const std::vector<std::vector<int>>& shapes,
+      const std::vector<Dtype>& dtypes,
+      std::shared_ptr<Primitive> primitive,
       const std::vector<array>& inputs);
 
   /** A unique identifier for an array. */
   std::uintptr_t id() const {
     return reinterpret_cast<std::uintptr_t>(array_desc_.get());
+  }
+
+  /** A unique identifier for an arrays primitive. */
+  std::uintptr_t primitive_id() const {
+    return reinterpret_cast<std::uintptr_t>(array_desc_->primitive.get());
   }
 
   struct Data {
@@ -219,11 +225,31 @@ class array {
     return array_desc_->inputs;
   };
 
-  /** A non-const reference to the array's inputs so that they can be used to
-   * edit the graph. */
-  std::vector<array>& editable_inputs() {
+  std::vector<array>& inputs() {
     return array_desc_->inputs;
   }
+
+  /** The array's siblings. */
+  const std::vector<array>& siblings() const {
+    return array_desc_->siblings;
+  };
+
+  void set_siblings(std::vector<array> siblings, uint16_t position) {
+    array_desc_->siblings = std::move(siblings);
+    array_desc_->position = position;
+  }
+
+  /** The outputs of the array's primitive (i.e. this array and
+   * its siblings) in the order the primitive expects. */
+  std::vector<array> outputs() const {
+    auto idx = array_desc_->position;
+    std::vector<array> outputs;
+    outputs.reserve(siblings().size() + 1);
+    outputs.insert(outputs.end(), siblings().begin(), siblings().begin() + idx);
+    outputs.push_back(*this);
+    outputs.insert(outputs.end(), siblings().begin() + idx, siblings().end());
+    return outputs;
+  };
 
   /** Detach the array from the graph. */
   void detach();
@@ -265,9 +291,7 @@ class array {
     array_desc_->is_tracer = is_tracer;
   }
   // Check if the array is a tracer array
-  bool is_tracer() const {
-    return array_desc_->is_tracer;
-  }
+  bool is_tracer() const;
 
   void set_data(allocator::Buffer buffer, deleter_t d = allocator::free);
 
@@ -301,7 +325,7 @@ class array {
     std::vector<size_t> strides;
     size_t size;
     Dtype dtype;
-    std::unique_ptr<Primitive> primitive{nullptr};
+    std::shared_ptr<Primitive> primitive{nullptr};
 
     // Indicates an array is being used in a graph transform
     // and should not be detached from the graph
@@ -323,16 +347,19 @@ class array {
     Flags flags;
 
     std::vector<array> inputs;
+    // An array to keep track of the siblings from a multi-output
+    // primitive.
+    std::vector<array> siblings;
+    // The arrays position in the output list
+    uint32_t position{0};
 
     explicit ArrayDesc(const std::vector<int>& shape, Dtype dtype);
 
     explicit ArrayDesc(
         const std::vector<int>& shape,
         Dtype dtype,
-        std::unique_ptr<Primitive> primitive,
+        std::shared_ptr<Primitive> primitive,
         const std::vector<array>& inputs);
-
-    ~ArrayDesc();
   };
 
   // The ArrayDesc contains the details of the materialized array including the
@@ -381,11 +408,11 @@ array::array(
 }
 
 template <typename T>
-T array::item(bool retain_graph /* = false */) {
+T array::item() {
   if (size() != 1) {
     throw std::invalid_argument("item can only be called on arrays of size 1.");
   }
-  eval(retain_graph);
+  eval();
   return *data<T>();
 }
 

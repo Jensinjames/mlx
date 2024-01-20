@@ -1,6 +1,7 @@
 # Copyright © 2023 Apple Inc.
 
 import math
+from typing import Any
 
 import mlx.core as mx
 from mlx.nn.layers.base import Module
@@ -25,7 +26,7 @@ def sigmoid(x):
 
 
 def relu(x):
-    """Applies the Rectified Linear Unit.
+    r"""Applies the Rectified Linear Unit.
 
     Simply ``mx.maximum(x, 0)``.
     """
@@ -33,15 +34,23 @@ def relu(x):
 
 
 def leaky_relu(x, negative_slope=0.01):
-    """Applies the Leaky Rectified Linear Unit.
+    r"""Applies the Leaky Rectified Linear Unit.
 
     Simply ``mx.maximum(negative_slope * x, x)``.
     """
     return mx.maximum(negative_slope * x, x)
 
 
+def log_softmax(x, axis=-1):
+    r"""Applies the Log Softmax function.
+
+    Applies :math:`x + \log \sum_i e^{x_i}` element wise.
+    """
+    return x - mx.logsumexp(x, axis=axis, keepdims=True)
+
+
 def elu(x, alpha=1.0):
-    """Applies the Exponential Linear Unit.
+    r"""Applies the Exponential Linear Unit.
 
     Simply ``mx.where(x > 0, x, alpha * (mx.exp(x) - 1))``.
     """
@@ -56,12 +65,28 @@ def relu6(x):
     return mx.minimum(mx.maximum(x, 0), 6.0)
 
 
+def softmax(x, axis=-1):
+    r"""Applies the Softmax function.
+
+    Applies :math:`\frac{e^{x_i}}{\sum_j e^{x_j}}` element wise.
+    """
+    return mx.softmax(x, axis=axis)
+
+
 def softplus(x):
     r"""Applies the Softplus function.
 
     Applies :math:`\log(1 + \exp(x))` element wise.
     """
     return mx.logaddexp(x, 0)
+
+
+def softsign(x):
+    r"""Applies the Softsign function.
+
+    Applies :math:`\frac{x}{1 + |x|}` element wise.
+    """
+    return mx.divide(x, 1 + mx.abs(x))
 
 
 def celu(x, alpha=1.0):
@@ -138,9 +163,41 @@ def gelu_fast_approx(x):
     return x * mx.sigmoid(1.773 * x)
 
 
-@_make_activation_module
-class Sigmoid(Module):
-    pass
+def glu(x: mx.array, axis: int = -1) -> mx.array:
+    r"""Applies the gated linear unit function.
+
+    This function splits the ``axis`` dimension of the input into two halves
+    (:math:`a` and :math:`b`) and applies :math:`a * \sigma(b)`.
+
+    .. math::
+        textrm{GLU}(x) = a * \sigma(b)
+
+    Args:
+        axis (int): The dimension to split along. Default: ``-1``.
+    """
+    a, b = mx.split(x, indices_or_sections=2, axis=axis)
+    return a * mx.sigmoid(b)
+
+
+class GLU(Module):
+    r"""Applies the gated linear unit function.
+
+    This function splits the ``axis`` dimension of the input into two halves
+    (:math:`a` and :math:`b`) and applies :math:`a * \sigma(b)`.
+
+    .. math::
+        textrm{GLU}(x) = a * \sigma(b)
+
+    Args:
+        axis (int): The dimension to split along. Default: ``-1``.
+    """
+
+    def __init__(self, axis: int = -1):
+        super().__init__()
+        self.axis = axis
+
+    def __call__(self, x) -> Any:
+        return glu(x=x, axis=self.axis)
 
 
 def step(x: mx.array, threshold: float = 0.0):
@@ -179,12 +236,12 @@ def selu(x):
 
 
 def prelu(x: mx.array, alpha: mx.array) -> mx.array:
-    r"""Applies the element-wise function:
+    r"""Applies the element-wise parametric ReLU.
 
     .. math::
         \text{PReLU}(x) = \max(0,x) + a * \min(0,x)
 
-    Here :math:`a` is an array.
+    where :math:`a` is an array.
     """
     return mx.maximum(0, x) + alpha * mx.minimum(0, x)
 
@@ -202,14 +259,44 @@ def mish(x: mx.array) -> mx.array:
     return x * mx.tanh(softplus(x))
 
 
+def hardswish(x):
+    r"""Applies the hardswish function, element-wise.
+
+    .. math::
+        \text{Hardswish}(x) = x * \min(\max(x + 3, 0), 6) / 6
+    """
+    max_x_3 = mx.maximum(x + 3, 0)
+    return x * mx.minimum(max_x_3, 6) / 6
+
+
+@_make_activation_module(mx.sigmoid)
+class Sigmoid(Module):
+    r"""Applies the sigmoid function, element-wise.
+
+    .. math::
+        \text{Sigmoid}(x) = \sigma(x) = \frac{1}{1 + \exp(-x)}
+    """
+
+
 @_make_activation_module(mish)
 class Mish(Module):
-    pass
+    r"""Applies the Mish function, element-wise.
+
+    Reference: https://arxiv.org/abs/1908.08681
+
+    .. math::
+        \text{Mish}(x) = x * \text{Tanh}(\text{Softplus}(x))
+
+    """
 
 
 @_make_activation_module(relu)
 class ReLU(Module):
-    pass
+    r"""Applies the Rectified Linear Unit.
+        Simply ``mx.maximum(x, 0)``.
+
+    See :func:`relu`, for the functional equivalent.
+    """
 
 
 class LeakyReLU(Module):
@@ -249,12 +336,34 @@ class ELU(Module):
 
 @_make_activation_module(relu6)
 class ReLU6(Module):
-    pass
+    r"""Applies the Rectified Linear Unit 6.
+
+    See :func:`relu6`, for the functional equivalent.
+    """
+
+
+@_make_activation_module(softmax)
+class Softmax(Module):
+    r"""Applies the Softmax function.
+
+    See :func:`softmax`, for the functional equivalent.
+    """
 
 
 @_make_activation_module(softplus)
 class Softplus(Module):
-    pass
+    r"""Applies the Softplus function.
+
+    See :func:`softplus`, for the functional equivalent.
+    """
+
+
+@_make_activation_module(softsign)
+class Softsign(Module):
+    r"""Applies the Softsign function.
+
+    See :func:`softsign`, for the functional equivalent.
+    """
 
 
 class CELU(Module):
@@ -278,15 +387,40 @@ class CELU(Module):
 
 @_make_activation_module(silu)
 class SiLU(Module):
-    pass
+    r"""Applies the Sigmoid Linear Unit. Also known as Swish.
+
+    See :func:`silu`, for the functional equivalent.
+    """
+
+
+@_make_activation_module(log_softmax)
+class LogSoftmax(Module):
+    r"""Applies the Log Softmax function.
+
+    See :func:`log_softmax`, for the functional equivalent.
+    """
 
 
 @_make_activation_module(log_sigmoid)
 class LogSigmoid(Module):
-    pass
+    r"""Applies the Log Sigmoid function.
+
+    See :func:`log_sigmoid`, for the functional equivalent.
+    """
 
 
 class PReLU(Module):
+    r"""Applies the element-wise parametric ReLU.
+        Applies :math:`\max(0, x) + a * \min(0, x)` element wise, where :math:`a`
+        is an array.
+
+    See :func:`prelu`, for the functional equivalent.
+
+    Args:
+        num_parameters: number of :math:`a` to learn. Default: 1
+        init: the initial value of :math:`a`. Default: 0.25
+    """
+
     def __init__(self, num_parameters=1, init=0.25):
         super().__init__()
         self.weight = mx.full([num_parameters], init)
@@ -346,7 +480,18 @@ def tanh(x):
 
 @_make_activation_module(tanh)
 class Tanh(Module):
-    pass
+    r"""Applies the hyperbolic tangent function.
+
+    See :func:`tanh`, for the functional equivalent.
+    """
+
+
+@_make_activation_module(hardswish)
+class Hardswish(Module):
+    r"""Applies the hardswish function, element-wise.
+
+    See :func:`hardswish`, for the functional equivalent.
+    """
 
 
 class Step(Module):
@@ -375,4 +520,7 @@ class Step(Module):
 
 @_make_activation_module(selu)
 class SELU(Module):
-    pass
+    r"""Applies the Scaled Exponential Linear Unit.
+
+    See :func:`selu`, for the functional equivalent.
+    """

@@ -8,6 +8,7 @@
 
 #include "mlx/allocator.h"
 #include "mlx/backend/common/arange.h"
+#include "mlx/backend/common/binary.h"
 #include "mlx/backend/common/copy.h"
 #include "mlx/backend/common/erf.h"
 #include "mlx/backend/common/threefry.h"
@@ -167,6 +168,17 @@ void Broadcast::eval(const std::vector<array>& inputs, array& out) {
   out.copy_shared_buffer(in, strides, flags, in.data_size());
 }
 
+void Ceil::eval(const std::vector<array>& inputs, array& out) {
+  assert(inputs.size() == 1);
+  auto& in = inputs[0];
+  if (not is_integral(in.dtype())) {
+    unary_fp(in, out, [](auto x) { return std::ceil(x); });
+  } else {
+    // No-op integer types
+    out.copy_shared_buffer(in);
+  }
+}
+
 void Concatenate::eval(const std::vector<array>& inputs, array& out) {
   std::vector<int> sizes;
   sizes.push_back(0);
@@ -287,6 +299,17 @@ void Exp::eval(const std::vector<array>& inputs, array& out) {
   }
 }
 
+void Floor::eval(const std::vector<array>& inputs, array& out) {
+  assert(inputs.size() == 1);
+  auto& in = inputs[0];
+  if (not is_integral(in.dtype())) {
+    unary_fp(in, out, [](auto x) { return std::floor(x); });
+  } else {
+    // No-op integer types
+    out.copy_shared_buffer(in);
+  }
+}
+
 void Full::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
@@ -340,6 +363,20 @@ void LogicalNot::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
   unary(in, out, [](auto x) { return !x; });
+}
+
+void LogicalAnd::eval(const std::vector<array>& inputs, array& out) {
+  assert(inputs.size() == 2); // LogicalAnd requires two input arrays
+  auto& in1 = inputs[0];
+  auto& in2 = inputs[1];
+  binary(in1, in2, out, [](auto x, auto y) { return x && y; });
+}
+
+void LogicalOr::eval(const std::vector<array>& inputs, array& out) {
+  assert(inputs.size() == 2); // LogicalOr requires two input arrays
+  auto& in1 = inputs[0];
+  auto& in2 = inputs[1];
+  binary(in1, in2, out, [](auto x, auto y) { return x || y; });
 }
 
 void Negative::eval(const std::vector<array>& inputs, array& out) {
@@ -444,6 +481,17 @@ void Reshape::eval(const std::vector<array>& inputs, array& out) {
   }
 }
 
+void Round::eval(const std::vector<array>& inputs, array& out) {
+  assert(inputs.size() == 1);
+  auto& in = inputs[0];
+  if (not is_integral(in.dtype())) {
+    unary_fp(in, out, RoundOp());
+  } else {
+    // No-op integer types
+    out.copy_shared_buffer(in);
+  }
+}
+
 void Sigmoid::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
@@ -538,6 +586,58 @@ void Slice::eval(const std::vector<array>& inputs, array& out) {
   }
 
   out.copy_shared_buffer(in, strides, flags, data_size, data_offset);
+}
+
+void Split::eval(
+    const std::vector<array>& inputs,
+    std::vector<array>& outputs) {
+  assert(inputs.size() == 1);
+
+  auto& in = inputs[0];
+
+  auto compute_new_flags = [](const auto& shape,
+                              const auto& strides,
+                              size_t in_data_size,
+                              auto flags) {
+    size_t data_size = 1;
+    size_t f_stride = 1;
+    size_t b_stride = 1;
+    flags.row_contiguous = true;
+    flags.col_contiguous = true;
+    for (int i = 0, ri = shape.size() - 1; ri >= 0; i++, ri--) {
+      flags.col_contiguous &= strides[i] == f_stride || shape[i] == 1;
+      flags.row_contiguous &= strides[ri] == b_stride || shape[ri] == 1;
+      f_stride *= shape[i];
+      b_stride *= shape[ri];
+      if (strides[i] > 0) {
+        data_size *= shape[i];
+      }
+    }
+
+    if (data_size == 1) {
+      // Broadcasted scalar array is contiguous.
+      flags.contiguous = true;
+    } else if (data_size == in_data_size) {
+      // Means we sliced a broadcasted dimension so leave the "no holes" flag
+      // alone.
+    } else {
+      // We sliced something. So either we are row or col contiguous or we
+      // punched a hole.
+      flags.contiguous &= flags.row_contiguous || flags.col_contiguous;
+    }
+
+    return std::pair<decltype(flags), size_t>{flags, data_size};
+  };
+
+  std::vector<int> indices(1, 0);
+  indices.insert(indices.end(), indices_.begin(), indices_.end());
+  for (int i = 0; i < indices.size(); i++) {
+    size_t offset = indices[i] * in.strides()[axis_];
+    auto [new_flags, data_size] = compute_new_flags(
+        outputs[i].shape(), in.strides(), in.data_size(), in.flags());
+    outputs[i].copy_shared_buffer(
+        in, in.strides(), new_flags, data_size, offset);
+  }
 }
 
 void Square::eval(const std::vector<array>& inputs, array& out) {

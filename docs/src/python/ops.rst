@@ -26,25 +26,38 @@ Operations
    argsort
    array_equal
    broadcast_to
+   ceil
+   clip
    concatenate
    convolve
    conv1d
    conv2d
    cos
    cosh
+   dequantize
    divide
+   divmod
    equal
    erf
    erfinv
    exp
    expand_dims
    eye
+   flatten
+   floor
+   floor_divide
    full
    greater
    greater_equal
    identity
+   inner
+   isnan
+   isposinf
+   isneginf
+   isinf
    less
    less_equal
+   linspace
    load
    log
    log2
@@ -52,6 +65,8 @@ Operations
    log1p
    logaddexp
    logical_not
+   logical_and
+   logical_or
    logsumexp
    matmul
    max
@@ -59,19 +74,27 @@ Operations
    mean
    min
    minimum
+   moveaxis
    multiply
    negative
    ones
    ones_like
+   outer
    partition
    pad
    prod
+   quantize
+   quantized_matmul
    reciprocal
+   repeat
    reshape
+   round
    rsqrt
    save
    savez
    savez_compressed
+   save_gguf
+   save_safetensors
    sigmoid
    sign
    sin
@@ -82,14 +105,20 @@ Operations
    sqrt
    square
    squeeze
+   stack
    stop_gradient
    subtract
    sum
+   swapaxes
    take
    take_along_axis
    tan
    tanh
+   tensordot
    transpose
+   tri
+   tril
+   triu
    var
    where
    zeros

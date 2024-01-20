@@ -17,6 +17,12 @@
     primitive::eval(inputs, out);                                          \
   }
 
+#define DEFAULT_MULTI(primitive)                                       \
+  void primitive::eval_cpu(                                            \
+      const std::vector<array>& inputs, std::vector<array>& outputs) { \
+    primitive::eval(inputs, outputs);                                  \
+  }
+
 namespace mlx::core {
 
 // Use the default implementation for the following primitives
@@ -26,12 +32,14 @@ DEFAULT(ArgReduce)
 DEFAULT(ArgSort)
 DEFAULT(AsStrided)
 DEFAULT(Broadcast)
+DEFAULT(Ceil)
 DEFAULT(Concatenate)
 DEFAULT(Copy)
 DEFAULT(Equal)
 DEFAULT(Erf)
 DEFAULT(ErfInv)
 DEFAULT(FFT)
+DEFAULT(Floor)
 DEFAULT(Gather)
 DEFAULT(Greater)
 DEFAULT(GreaterEqual)
@@ -39,19 +47,24 @@ DEFAULT(Less)
 DEFAULT(LessEqual)
 DEFAULT(Load)
 DEFAULT(LogicalNot)
+DEFAULT(LogicalAnd)
+DEFAULT(LogicalOr)
 DEFAULT(LogAddExp)
 DEFAULT(NotEqual)
 DEFAULT(Pad)
 DEFAULT(Partition)
 DEFAULT(RandomBits)
 DEFAULT(Reshape)
+DEFAULT(Round)
 DEFAULT(Scatter)
 DEFAULT(Sigmoid)
 DEFAULT(Sign)
 DEFAULT(Slice)
+DEFAULT_MULTI(Split)
 DEFAULT(Sort)
 DEFAULT(StopGradient)
 DEFAULT(Transpose)
+DEFAULT_MULTI(DivMod)
 
 void Abs::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);

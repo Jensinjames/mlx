@@ -438,14 +438,18 @@ auto py_vmap(
 }
 
 void init_transforms(py::module_& m) {
+  py::options options;
+  options.disable_function_signatures();
+
   m.def(
       "eval",
-      [](const py::args& args, bool retain_graph) {
+      [](const py::args& args) {
         std::vector<array> arrays = tree_flatten(args);
-        eval(arrays, retain_graph);
+        eval(arrays);
       },
-      "retain_graph"_a = false,
       R"pbdoc(
+        eval(*args) -> None
+
         Evaluate an :class:`array` or tree of :class:`array`.
 
         Args:
@@ -453,9 +457,6 @@ void init_transforms(py::module_& m) {
               or a tree of arrays. If a tree is given the nodes can be a Python
               :class:`list`, :class:`tuple` or :class:`dict` but the leafs must all be
               an :class:`array`.
-            retain_graph (bool): Indicate that the graph structure should be
-              preserved. This option is intended to enable function transforms
-              which contain control flow based on the value of an array.
       )pbdoc");
   m.def(
       "jvp",
@@ -480,6 +481,9 @@ void init_transforms(py::module_& m) {
       "primals"_a,
       "tangents"_a,
       R"pbdoc(
+        jvp(fun: function, primals: List[array], tangents: List[array]) -> Tuple[List[array], List[array]]
+
+
         Compute the Jacobian-vector product.
 
         This computes the product of the Jacobian of a function ``fun`` evaluated
@@ -521,6 +525,8 @@ void init_transforms(py::module_& m) {
       "primals"_a,
       "cotangents"_a,
       R"pbdoc(
+        vjp(fun: function, primals: List[array], cotangents: List[array]) -> Tuple[List[array], List[array]]
+
         Compute the vector-Jacobian product.
 
         Computes the product of the ``cotangents`` with the Jacobian of a
@@ -553,6 +559,8 @@ void init_transforms(py::module_& m) {
       "argnums"_a = std::nullopt,
       "argnames"_a = std::vector<std::string>{},
       R"pbdoc(
+        value_and_grad(fun: function, argnums: Optional[Union[int, List[int]]] = None, argnames: Union[str, List[str]] = []) -> function
+
         Returns a function which computes the value and gradient of ``fun``.
 
         The function passed to :func:`value_and_grad` should return either
@@ -569,7 +577,7 @@ void init_transforms(py::module_& m) {
                 return lvalue
 
             # Returns lvalue, dlvalue/dparams
-            lvalue, grads = mx.value_and_grad(mse)
+            lvalue, grads = mx.value_and_grad(mse)(params, inputs, targets)
 
             def lasso(params, inputs, targets, a=1.0, b=1.0):
                 outputs = forward(params, inputs)
@@ -580,7 +588,7 @@ void init_transforms(py::module_& m) {
 
                 return loss, mse, l1
 
-            (loss, mse, l1), grads = mx.value_and_grad(lasso)
+            (loss, mse, l1), grads = mx.value_and_grad(lasso)(params, inputs, targets)
 
         Args:
             fun (function): A function which takes a variable number of
@@ -619,6 +627,8 @@ void init_transforms(py::module_& m) {
       "argnums"_a = std::nullopt,
       "argnames"_a = std::vector<std::string>{},
       R"pbdoc(
+        grad(fun: function, argnums: Optional[Union[int, List[int]]] = None, argnames: Union[str, List[str]] = []) -> function
+
         Returns a function which computes the gradient of ``fun``.
 
         Args:
@@ -649,6 +659,8 @@ void init_transforms(py::module_& m) {
       "in_axes"_a = 0,
       "out_axes"_a = 0,
       R"pbdoc(
+        vmap(fun: function, in_axes: object = 0, out_axes: object = 0) -> function
+
         Returns a vectorized version of ``fun``.
 
         Args:
@@ -674,6 +686,8 @@ void init_transforms(py::module_& m) {
         simplify(arrays);
       },
       R"pbdoc(
+        simplify(*args) -> None
+
         Simplify the graph that computes the arrays.
 
         Run a few fast graph simplification operations to reuse computation and

@@ -5,18 +5,17 @@ import os
 import re
 import subprocess
 import sys
-import sysconfig
 from pathlib import Path
 from subprocess import run
 
-from setuptools import Extension, find_namespace_packages, setup
+from setuptools import Command, Extension, find_namespace_packages, setup
 from setuptools.command.build_ext import build_ext
 
 
 def get_version(version):
     if "PYPI_RELEASE" not in os.environ:
         today = datetime.date.today()
-        version = f"{version}.dev{today.year}{today.month}{today.day}"
+        version = f"{version}.dev{today.year}{today.month:02d}{today.day:02d}"
 
         if "DEV_RELEASE" not in os.environ:
             git_hash = (
@@ -125,6 +124,19 @@ class CMakeBuild(build_ext):
                     self.copy_tree(regular_dir, inplace_dir)
 
 
+class GenerateStubs(Command):
+    user_options = []
+
+    def initialize_options(self):
+        pass
+
+    def finalize_options(self):
+        pass
+
+    def run(self) -> None:
+        subprocess.run(["pybind11-stubgen", "mlx.core", "-o", "python"])
+
+
 # Read the content of README.md
 with open(Path(__file__).parent / "README.md", encoding="utf-8") as f:
     long_description = f.read()
@@ -140,19 +152,23 @@ if __name__ == "__main__":
 
     setup(
         name="mlx",
-        version=get_version("0.0.5"),
+        version=get_version("0.0.10"),
         author="MLX Contributors",
         author_email="mlx@group.apple.com",
-        description="A framework for machine learning on Apple Silicon.",
+        description="A framework for machine learning on Apple silicon.",
         long_description=long_description,
         long_description_content_type="text/markdown",
+        url="https://github.com/ml-explore/mlx",
         packages=packages,
         package_dir=package_dir,
         package_data=package_data,
         include_package_data=True,
-        extras_require={"testing": ["numpy", "torch"]},
+        extras_require={
+            "testing": ["numpy", "torch"],
+            "dev": ["pre-commit", "pybind11-stubgen"],
+        },
         ext_modules=[CMakeExtension("mlx.core")],
-        cmdclass={"build_ext": CMakeBuild},
+        cmdclass={"build_ext": CMakeBuild, "generate_stubs": GenerateStubs},
         zip_safe=False,
         python_requires=">=3.8",
     )

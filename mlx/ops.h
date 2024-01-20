@@ -1,13 +1,13 @@
-// Copyright © 2023 Apple Inc.
+// Copyright © 2023-2024 Apple Inc.
 
 #pragma once
 
+#include <optional>
 #include <variant>
 
-#include "array.h"
-#include "device.h"
-#include "load.h"
-#include "stream.h"
+#include "mlx/array.h"
+#include "mlx/device.h"
+#include "mlx/stream.h"
 
 namespace mlx::core {
 
@@ -19,7 +19,7 @@ Stream to_stream(StreamOrDevice s);
 
 /**
  * A 1D array of numbers starting at `start` (optional),
- * stopping at stop, stepping by `step` (optional). **/
+ * stopping at stop, stepping by `step` (optional). */
 array arange(
     double start,
     double stop,
@@ -35,6 +35,14 @@ array arange(double stop, StreamOrDevice s = {});
 array arange(int start, int stop, int step, StreamOrDevice s = {});
 array arange(int start, int stop, StreamOrDevice s = {});
 array arange(int stop, StreamOrDevice s = {});
+
+/** A 1D array of `num` evenly spaced numbers in the range `[start, stop]` */
+array linspace(
+    double start,
+    double stop,
+    int num = 50,
+    Dtype dtype = float32,
+    StreamOrDevice s = {});
 
 /** Convert an array to the given data type. */
 array astype(const array& a, Dtype dtype, StreamOrDevice s = {});
@@ -110,10 +118,28 @@ inline array identity(int n, StreamOrDevice s = {}) {
   return identity(n, float32, s);
 }
 
+array tri(int n, int m, int k, Dtype type, StreamOrDevice s = {});
+inline array tri(int n, Dtype type, StreamOrDevice s = {}) {
+  return tri(n, n, 0, type, s);
+}
+
+array tril(array x, int k, StreamOrDevice s = {});
+array triu(array x, int k, StreamOrDevice s = {});
+
 /** array manipulation */
 
 /** Reshape an array to the given shape. */
 array reshape(const array& a, std::vector<int> shape, StreamOrDevice s = {});
+
+/** Flatten the dimensions in the range `[start_axis, end_axis]` . */
+array flatten(
+    const array& a,
+    int start_axis,
+    int end_axis = -1,
+    StreamOrDevice s = {});
+
+/** Flatten the array to 1D. */
+array flatten(const array& a, StreamOrDevice s = {});
 
 /** Remove singleton dimensions at the given axes. */
 array squeeze(
@@ -167,12 +193,31 @@ std::vector<array> split(
 std::vector<array>
 split(const array& a, const std::vector<int>& indices, StreamOrDevice s = {});
 
+/**
+ * Clip (limit) the values in an array.
+ */
+array clip(
+    const array& a,
+    const std::optional<array>& a_min = std::nullopt,
+    const std::optional<array>& a_max = std::nullopt,
+    StreamOrDevice s = {});
+
 /** Concatenate arrays along a given axis. */
 array concatenate(
     const std::vector<array>& arrays,
     int axis,
     StreamOrDevice s = {});
 array concatenate(const std::vector<array>& arrays, StreamOrDevice s = {});
+
+/** Stack arrays along a new axis. */
+array stack(const std::vector<array>& arrays, int axis, StreamOrDevice s = {});
+array stack(const std::vector<array>& arrays, StreamOrDevice s = {});
+
+/** Repeat an array along an axis. */
+array repeat(const array& arr, int repeats, int axis, StreamOrDevice s = {});
+array repeat(const array& arr, int repeats, StreamOrDevice s = {});
+
+array tile(const array& arr, std::vector<int> reps, StreamOrDevice s = {});
 
 /** Permutes the dimensions according to the given axes. */
 array transpose(const array& a, std::vector<int> axes, StreamOrDevice s = {});
@@ -182,6 +227,16 @@ inline array transpose(
     StreamOrDevice s = {}) {
   return transpose(a, std::vector<int>(axes), s);
 }
+
+/** Swap two axes of an array. */
+array swapaxes(const array& a, int axis1, int axis2, StreamOrDevice s = {});
+
+/** Move an axis of an array. */
+array moveaxis(
+    const array& a,
+    int source,
+    int destination,
+    StreamOrDevice s = {});
 
 /** Pad an array with a constant value */
 array pad(
@@ -319,6 +374,14 @@ inline array
 array_equal(const array& a, const array& b, StreamOrDevice s = {}) {
   return array_equal(a, b, false, s);
 }
+
+array isnan(const array& a, StreamOrDevice s = {});
+
+array isinf(const array& a, StreamOrDevice s = {});
+
+array isposinf(const array& a, StreamOrDevice s = {});
+
+array isneginf(const array& a, StreamOrDevice s = {});
 
 /** Select from x or y depending on condition. */
 array where(
@@ -614,6 +677,14 @@ array sign(const array& a, StreamOrDevice s = {});
 /** Logical not of an array */
 array logical_not(const array& a, StreamOrDevice s = {});
 
+/** Logical and of two arrays */
+array logical_and(const array& a, const array& b, StreamOrDevice s = {});
+array operator&&(const array& a, const array& b);
+
+/** Logical or of two arrays */
+array logical_or(const array& a, const array& b, StreamOrDevice s = {});
+array operator||(const array& a, const array& b);
+
 /** The reciprocal (1/x) of the elements in an array. */
 array reciprocal(const array& a, StreamOrDevice s = {});
 
@@ -659,6 +730,13 @@ array operator/(const array& a, const array& b);
 array operator/(double a, const array& b);
 array operator/(const array& a, double b);
 
+/** Compute the element-wise quotient and remainder. */
+std::vector<array>
+divmod(const array& a, const array& b, StreamOrDevice s = {});
+
+/** Compute integer division. Equivalent to doing floor(a / x). */
+array floor_divide(const array& a, const array& b, StreamOrDevice s = {});
+
 /** Compute the element-wise remainder of division */
 array remainder(const array& a, const array& b, StreamOrDevice s = {});
 array operator%(const array& a, const array& b);
@@ -676,6 +754,12 @@ array maximum(const array& a, const array& b, StreamOrDevice s = {});
 
 /** Element-wise minimum between two arrays. */
 array minimum(const array& a, const array& b, StreamOrDevice s = {});
+
+/** Floor the element of an array. **/
+array floor(const array& a, StreamOrDevice s = {});
+
+/** Ceil the element of an array. **/
+array ceil(const array& a, StreamOrDevice s = {});
 
 /** Square the elements of an array. */
 array square(const array& a, StreamOrDevice s = {});
@@ -745,6 +829,12 @@ array erfinv(const array& a, StreamOrDevice s = {});
 
 /** Stop the flow of gradients. */
 array stop_gradient(const array& a, StreamOrDevice s = {});
+
+/** Round a floating point number */
+array round(const array& a, int decimals, StreamOrDevice s = {});
+inline array round(const array& a, StreamOrDevice s = {}) {
+  return round(a, 0, s);
+}
 
 /** Matrix-matrix multiplication. */
 array matmul(const array& a, const array& b, StreamOrDevice s = {});
@@ -949,21 +1039,59 @@ array conv2d(
     int groups = 1,
     StreamOrDevice s = {});
 
-/** Serialization operations */
+/** Quantized matmul multiplies x with a quantized matrix w*/
+array quantized_matmul(
+    const array& x,
+    const array& w,
+    const array& scales,
+    const array& biases,
+    bool transpose = true,
+    int group_size = 64,
+    int bits = 4,
+    StreamOrDevice s = {});
 
-/** Save array to out stream in .npy format */
-void save(
-    std::shared_ptr<io::Writer> out_stream,
+/** Quantize a matrix along its last axis */
+std::tuple<array, array, array> quantize(
+    const array& w,
+    int group_size = 64,
+    int bits = 4,
+    StreamOrDevice s = {});
+
+/** Dequantize a matrix produced by quantize() */
+array dequantize(
+    const array& w,
+    const array& scales,
+    const array& biases,
+    int group_size = 64,
+    int bits = 4,
+    StreamOrDevice s = {});
+
+/** TensorDot returns a contraction of a and b over multiple dimensions. */
+array tensordot(
+    const array& a,
+    const array& b,
+    const int dims = 2,
+    StreamOrDevice s = {});
+
+array tensordot(
+    const array& a,
+    const array& b,
+    const std::pair<std::vector<int>, std::vector<int>>& dims,
+    StreamOrDevice s = {});
+
+/** Compute the outer product of two vectors. */
+array outer(const array& a, const array& b, StreamOrDevice s = {});
+
+/** Compute the inner product of two vectors. */
+array inner(const array& a, const array& b, StreamOrDevice s = {});
+
+/** Compute D = beta * C + alpha * (A @ B) */
+array addmm(
+    array c,
     array a,
-    bool retain_graph = true);
-
-/** Save array to file in .npy format */
-void save(const std::string& file, array a, bool retain_graph = true);
-
-/** Load array from reader in .npy format */
-array load(std::shared_ptr<io::Reader> in_stream, StreamOrDevice s = {});
-
-/** Load array from file in .npy format */
-array load(const std::string& file, StreamOrDevice s = {});
+    array b,
+    const float& alpha = 1.f,
+    const float& beta = 1.f,
+    StreamOrDevice s = {});
 
 } // namespace mlx::core
