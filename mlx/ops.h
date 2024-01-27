@@ -123,8 +123,8 @@ inline array tri(int n, Dtype type, StreamOrDevice s = {}) {
   return tri(n, n, 0, type, s);
 }
 
-array tril(array x, int k, StreamOrDevice s = {});
-array triu(array x, int k, StreamOrDevice s = {});
+array tril(array x, int k = 0, StreamOrDevice s = {});
+array triu(array x, int k = 0, StreamOrDevice s = {});
 
 /** array manipulation */
 
@@ -404,6 +404,17 @@ array allclose(
     const array& b,
     double rtol = 1e-5,
     double atol = 1e-8,
+    bool equal_nan = false,
+    StreamOrDevice s = {});
+
+/** Returns a boolean array where two arrays are element-wise equal within the
+ * specified tolerance. */
+array isclose(
+    const array& a,
+    const array& b,
+    double rtol = 1e-5,
+    double atol = 1e-8,
+    bool equal_nan = false,
     StreamOrDevice s = {});
 
 /**

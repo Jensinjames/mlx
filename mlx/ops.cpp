@@ -79,7 +79,14 @@ array arange(
     msg << bool_ << " not supported for arange.";
     throw std::invalid_argument(msg.str());
   }
-  int size = std::max(static_cast<int>(std::ceil((stop - start) / step)), 0);
+  if (std::isnan(start) || std::isnan(step) || std::isnan(stop)) {
+    throw std::invalid_argument("[arange] Cannot compute length.");
+  }
+  double real_size = std::ceil((stop - start) / step);
+  if (std::isnan(real_size)) {
+    throw std::invalid_argument("[arange] Cannot compute length.");
+  }
+  int size = std::max(static_cast<int>(real_size), 0);
   return array(
       {size},
       dtype,
@@ -245,7 +252,7 @@ array tri(int n, int m, int k, Dtype type, StreamOrDevice s /* = {} */) {
   return astype(greater_equal(l, r, s), type, s);
 }
 
-array tril(array x, int k, StreamOrDevice s /* = {} */) {
+array tril(array x, int k /* = 0 */, StreamOrDevice s /* = {} */) {
   if (x.ndim() < 2) {
     throw std::invalid_argument("[tril] array must be at least 2-D");
   }
@@ -253,7 +260,7 @@ array tril(array x, int k, StreamOrDevice s /* = {} */) {
   return where(mask, x, zeros_like(x, s), s);
 }
 
-array triu(array x, int k, StreamOrDevice s /* = {} */) {
+array triu(array x, int k /* = 0 */, StreamOrDevice s /* = {} */) {
   if (x.ndim() < 2) {
     throw std::invalid_argument("[triu] array must be at least 2-D");
   }
@@ -662,26 +669,27 @@ array concatenate(
     int axis,
     StreamOrDevice s /* = {} */) {
   if (arrays.size() == 0) {
-    throw std::invalid_argument("No arrays provided for concatenation");
+    throw std::invalid_argument(
+        "[concatenate] No arrays provided for concatenation");
   }
 
   // Normalize the given axis
   auto ax = axis < 0 ? axis + arrays[0].ndim() : axis;
   if (ax < 0 || ax >= arrays[0].ndim()) {
     std::ostringstream msg;
-    msg << "Invalid axis (" << axis << ") passed to concatenate"
+    msg << "[concatenate] Invalid axis (" << axis << ") passed to concatenate"
         << " for array with shape " << arrays[0].shape() << ".";
     throw std::invalid_argument(msg.str());
   }
 
   auto throw_invalid_shapes = [&]() {
     std::ostringstream msg;
-    msg << "All the input array dimensions must match exactly except"
-        << " for the concatenation axis. However, the provided shapes are ";
+    msg << "[concatenate] All the input array dimensions must match exactly "
+        << "except for the concatenation axis. However, the provided shapes are ";
     for (auto& a : arrays) {
       msg << a.shape() << ", ";
     }
-    msg << "and the concatenation axis is " << axis;
+    msg << "and the concatenation axis is " << axis << ".";
     throw std::invalid_argument(msg.str());
   };
 
@@ -690,6 +698,13 @@ array concatenate(
   // Make the output shape and validate that all arrays have the same shape
   // except for the concatenation axis.
   for (auto& a : arrays) {
+    if (a.ndim() != shape.size()) {
+      std::ostringstream msg;
+      msg << "[concatenate] All the input arrays must have the same number of "
+          << "dimensions. However, got arrays with dimensions " << shape.size()
+          << " and " << a.ndim() << ".";
+      throw std::invalid_argument(msg.str());
+    }
     for (int i = 0; i < a.ndim(); i++) {
       if (i == ax) {
         continue;
@@ -1112,20 +1127,17 @@ array isnan(const array& a, StreamOrDevice s /* = {} */) {
 }
 
 array isinf(const array& a, StreamOrDevice s /* = {} */) {
+  return logical_or(isposinf(a, s), isneginf(a, s), s);
+}
+
+array isposinf(const array& a, StreamOrDevice s /* = {} */) {
   if (is_integral(a.dtype())) {
     return full(a.shape(), false, bool_, s);
   }
   return equal(a, array(std::numeric_limits<float>::infinity(), a.dtype()), s);
 }
 
-array isposinf(const array& a, StreamOrDevice s) {
-  if (is_integral(a.dtype())) {
-    return full(a.shape(), false, bool_, s);
-  }
-  return equal(a, array(std::numeric_limits<float>::infinity(), a.dtype()), s);
-}
-
-array isneginf(const array& a, StreamOrDevice s) {
+array isneginf(const array& a, StreamOrDevice s /* = {} */) {
   if (is_integral(a.dtype())) {
     return full(a.shape(), false, bool_, s);
   }
@@ -1147,11 +1159,43 @@ array allclose(
     const array& b,
     double rtol /* = 1e-5 */,
     double atol /* = 1e-8 */,
+    bool equal_nan /* = false */,
+    StreamOrDevice s /* = {}*/) {
+  return all(isclose(a, b, rtol, atol, equal_nan, s), s);
+}
+
+array isclose(
+    const array& a,
+    const array& b,
+    double rtol /* = 1e-5 */,
+    double atol /* = 1e-8 */,
+    bool equal_nan /* = false */,
     StreamOrDevice s /* = {}*/) {
   // |a - b| <= atol + rtol * |b|
   auto rhs = add(array(atol), multiply(array(rtol), abs(b, s), s), s);
   auto lhs = abs(subtract(a, b, s), s);
-  return all(less_equal(lhs, rhs, s), s);
+  auto out = less_equal(lhs, rhs, s);
+
+  // Correct the result for infinite values.
+  auto any_inf = logical_or(isinf(a, s), isinf(b, s), s);
+  auto both_inf = logical_or(
+      logical_and(isposinf(a, s), isposinf(b, s), s),
+      logical_and(isneginf(a, s), isneginf(b, s), s),
+      s);
+
+  // Convert all elements where either value is infinite to False.
+  out = logical_and(out, logical_not(any_inf, s), s);
+
+  // Convert all the elements where both values are infinite and of the same
+  // sign to True.
+  out = logical_or(out, both_inf, s);
+
+  if (equal_nan) {
+    auto both_nan = logical_and(isnan(a, s), isnan(b, s), s);
+    out = logical_or(out, both_nan, s);
+  }
+
+  return out;
 }
 
 array all(const array& a, bool keepdims, StreamOrDevice s /* = {}*/) {
@@ -2612,9 +2656,40 @@ inline std::vector<int> conv_out_shape(
   std::vector<int> out_shape(in_shape.size());
   int i = 0;
   out_shape[i++] = N;
+
   for (; i < in_shape.size() - 1; i++) {
+    if (pads[i - 1] < 0) {
+      std::ostringstream msg;
+      msg << "[conv] Padding sizes must be non-negative."
+          << " Got padding " << pads << ".";
+      throw std::invalid_argument(msg.str());
+    }
+
+    if (strides[i - 1] <= 0) {
+      std::ostringstream msg;
+      msg << "[conv] Stride sizes must be positive."
+          << " Got strides " << strides << ".";
+      throw std::invalid_argument(msg.str());
+    }
+
+    if (dilation[i - 1] <= 0) {
+      std::ostringstream msg;
+      msg << "[conv] Dilation sizes must be positive."
+          << " Got dilation " << dilation << ".";
+      throw std::invalid_argument(msg.str());
+    }
+
     out_shape[i] = conv_out_axis_size(
         in_shape[i], wt_shape[i], strides[i - 1], pads[i - 1], dilation[i - 1]);
+
+    if (out_shape[i] <= 0) {
+      std::ostringstream msg;
+      msg << "[conv] Spatial dimensions of input after padding "
+          << " cannot be smaller than weight spatial dimensions."
+          << " Got input with shape " << in_shape << " and padding " << pads
+          << " for weight of shape " << wt_shape << ".";
+      throw std::invalid_argument(msg.str());
+    }
   }
   out_shape[i] = O;
 
@@ -2845,7 +2920,7 @@ std::tuple<array, array, array> quantize(
     int group_size /* = 64 */,
     int bits /* = 4 */,
     StreamOrDevice s /* = {} */) {
-  if (group_size != 64 && group_size != 128) {
+  if (group_size != 32 && group_size != 64 && group_size != 128) {
     std::ostringstream msg;
     msg << "[quantize] The requested group size " << group_size
         << " is not supported. The supported group sizes are 64 and 128.";
@@ -2918,6 +2993,16 @@ array dequantize(
     int group_size /* = 64 */,
     int bits /* = 4 */,
     StreamOrDevice s /* = {} */) {
+  if (bits <= 0) {
+    std::ostringstream msg;
+    msg << "[dequantize] Invalid value for bits: " << bits;
+    throw std::invalid_argument(msg.str());
+  }
+  if (group_size <= 0) {
+    std::ostringstream msg;
+    msg << "[dequantize] Invalid value for group_size: " << group_size;
+    throw std::invalid_argument(msg.str());
+  }
   if (w.ndim() != 2 || scales.ndim() != 2 || biases.ndim() != 2) {
     throw std::invalid_argument("[dequantize] Only matrices supported for now");
   }

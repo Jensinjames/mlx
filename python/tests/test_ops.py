@@ -855,6 +855,21 @@ class TestOps(mlx_tests.MLXTestCase):
         self.assertFalse(mx.allclose(a, b, 0.01).item())
         self.assertTrue(mx.allclose(a, b, 0.01, 0.1).item())
 
+        c = mx.array(float("inf"))
+        self.assertTrue(mx.allclose(c, c).item())
+
+    def test_isclose(self):
+        a = mx.array([float("inf"), float("inf"), float("-inf")])
+        b = mx.array([float("inf"), float("-inf"), float("-inf")])
+
+        self.assertListEqual(mx.isclose(a, b).tolist(), [True, False, True])
+
+        a = mx.array([np.nan])
+        self.assertListEqual(mx.isclose(a, a).tolist(), [False])
+
+        a = mx.array([np.nan])
+        self.assertListEqual(mx.isclose(a, a, equal_nan=True).tolist(), [True])
+
     def test_all(self):
         a = mx.array([[True, False], [True, True]])
 
@@ -980,6 +995,17 @@ class TestOps(mlx_tests.MLXTestCase):
         self.assertEqual(z.tolist(), [5, 6, 7])
 
     def test_arange_overload_dispatch(self):
+        with self.assertRaises(ValueError):
+            a = mx.arange(float("nan"), 1, 5)
+        with self.assertRaises(ValueError):
+            a = mx.arange(0, float("nan"), 5)
+        with self.assertRaises(ValueError):
+            a = mx.arange(0, 2, float("nan"))
+        with self.assertRaises(ValueError):
+            a = mx.arange(0, float("inf"), float("inf"))
+        with self.assertRaises(ValueError):
+            a = mx.arange(float("inf"), 1, float("inf"))
+
         a = mx.arange(5)
         expected = [0, 1, 2, 3, 4]
         self.assertListEqual(a.tolist(), expected)
@@ -1334,6 +1360,11 @@ class TestOps(mlx_tests.MLXTestCase):
                 self.assertEqual(list(c_npy.shape), list(c_mlx.shape))
                 self.assertTrue(np.allclose(c_npy, c_mlx, atol=1e-6))
 
+        with self.assertRaises(ValueError):
+            a = mx.array([[1, 2], [1, 2], [1, 2]])
+            b = mx.array([1, 2])
+            mx.concatenate([a, b], axis=0)
+
     def test_pad(self):
         pad_width_and_values = [
             ([(1, 1), (1, 1), (1, 1)], 0),
@@ -1644,23 +1675,23 @@ class TestOps(mlx_tests.MLXTestCase):
                 self.assertCmpNumpy(
                     [(3, 4, 5), (4, 3, 2)],
                     mx.tensordot,
-                    lambda x, y, dims: np.tensordot(x, y, axes=dims),
+                    np.tensordot,
                     dtype=dtype,
-                    dims=([1, 0], [0, 1]),
+                    axes=([1, 0], [0, 1]),
                 )
                 self.assertCmpNumpy(
                     [(3, 4, 5), (4, 5, 6)],
                     mx.tensordot,
-                    lambda x, y, dims: np.tensordot(x, y, axes=dims),
+                    np.tensordot,
                     dtype=dtype,
-                    dims=2,
+                    axes=2,
                 )
                 self.assertCmpNumpy(
                     [(3, 5, 4, 6), (6, 4, 5, 3)],
                     mx.tensordot,
-                    lambda x, y, dims: np.tensordot(x, y, axes=dims),
+                    np.tensordot,
                     dtype=dtype,
-                    dims=([2, 1, 3], [1, 2, 0]),
+                    axes=([2, 1, 3], [1, 2, 0]),
                 )
 
     def test_inner(self):

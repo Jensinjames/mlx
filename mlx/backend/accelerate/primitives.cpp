@@ -65,26 +65,17 @@ DEFAULT(Sort)
 DEFAULT(StopGradient)
 DEFAULT(Transpose)
 DEFAULT_MULTI(DivMod)
+DEFAULT_MULTI(QRF)
 
 void Abs::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
   if (in.dtype() == float32 && in.flags().contiguous) {
-    auto size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
-    vDSP_vabs(in.data<float>(), 1, out.data<float>(), 1, size);
+    set_unary_output_data(in, out);
+    vDSP_vabs(in.data<float>(), 1, out.data<float>(), 1, in.data_size());
   } else if (in.dtype() == int32 && in.flags().contiguous) {
-    auto size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
-    vDSP_vabsi(in.data<int>(), 1, out.data<int>(), 1, size);
+    set_unary_output_data(in, out);
+    vDSP_vabsi(in.data<int>(), 1, out.data<int>(), 1, in.data_size());
   } else if (is_unsigned(in.dtype())) {
     // No-op for unsigned types
     out.copy_shared_buffer(in);
@@ -137,12 +128,8 @@ void ArcCos::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     int size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvacosf(out.data<float>(), in.data<float>(), &size);
   } else {
     eval(inputs, out);
@@ -153,12 +140,8 @@ void ArcCosh::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     int size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvacoshf(out.data<float>(), in.data<float>(), &size);
   } else {
     eval(inputs, out);
@@ -169,12 +152,8 @@ void ArcSin::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     int size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvasinf(out.data<float>(), in.data<float>(), &size);
   } else {
     eval(inputs, out);
@@ -185,12 +164,8 @@ void ArcSinh::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     int size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvasinhf(out.data<float>(), in.data<float>(), &size);
   } else {
     eval(inputs, out);
@@ -201,12 +176,8 @@ void ArcTan::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     int size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvatanf(out.data<float>(), in.data<float>(), &size);
   } else {
     eval(inputs, out);
@@ -217,12 +188,8 @@ void ArcTanh::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     int size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvatanhf(out.data<float>(), in.data<float>(), &size);
   } else {
     eval(inputs, out);
@@ -234,30 +201,23 @@ void AsType::eval_cpu(const std::vector<array>& inputs, array& out) {
   auto& in = inputs[0];
 
   if (in.flags().contiguous) {
-    auto allocfn = [&in, &out]() {
-      out.set_data(
-          allocator::malloc_or_wait(in.data_size() * out.itemsize()),
-          in.data_size(),
-          in.strides(),
-          in.flags());
-    };
     // Use accelerate functions if possible
     if (in.dtype() == float32 && out.dtype() == uint32) {
-      allocfn();
+      set_unary_output_data(in, out);
       vDSP_vfixu32(
           in.data<float>(), 1, out.data<uint32_t>(), 1, in.data_size());
       return;
     } else if (in.dtype() == float32 && out.dtype() == int32) {
-      allocfn();
+      set_unary_output_data(in, out);
       vDSP_vfix32(in.data<float>(), 1, out.data<int32_t>(), 1, in.data_size());
       return;
     } else if (in.dtype() == uint32 && out.dtype() == float32) {
-      allocfn();
+      set_unary_output_data(in, out);
       vDSP_vfltu32(
           in.data<uint32_t>(), 1, out.data<float>(), 1, in.data_size());
       return;
     } else if (in.dtype() == int32 && out.dtype() == float32) {
-      allocfn();
+      set_unary_output_data(in, out);
       vDSP_vflt32(in.data<int32_t>(), 1, out.data<float>(), 1, in.data_size());
       return;
     }
@@ -269,12 +229,8 @@ void Cos::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     int size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvcosf(out.data<float>(), in.data<float>(), &size);
   } else {
     eval(inputs, out);
@@ -285,12 +241,8 @@ void Cosh::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     int size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvcoshf(out.data<float>(), in.data<float>(), &size);
   } else {
     eval(inputs, out);
@@ -378,12 +330,8 @@ void Exp::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     auto size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvexpf(out.data<float>(), in.data<float>(), reinterpret_cast<int*>(&size));
   } else if (is_floating_point(out.dtype())) {
     unary_fp(in, out, [](auto x) { return std::exp(x); });
@@ -410,12 +358,8 @@ void Log::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     auto size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     switch (base_) {
       case Base::e:
         vvlogf(
@@ -439,12 +383,8 @@ void Log1p::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     auto size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvlog1pf(
         out.data<float>(), in.data<float>(), reinterpret_cast<int*>(&size));
   } else if (is_floating_point(out.dtype())) {
@@ -526,13 +466,8 @@ void Negative::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
   if (in.dtype() == float32 && in.flags().contiguous) {
-    auto size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
-    vDSP_vneg(in.data<float>(), 1, out.data<float>(), 1, size);
+    set_unary_output_data(in, out);
+    vDSP_vneg(in.data<float>(), 1, out.data<float>(), 1, in.data_size());
   } else {
     unary(in, out, [](auto x) { return -x; });
   }
@@ -545,7 +480,13 @@ void Power::eval_cpu(const std::vector<array>& inputs, array& out) {
   if (out.dtype() == float32 && a.flags().row_contiguous &&
       b.flags().row_contiguous) {
     int size = a.size();
-    out.set_data(allocator::malloc_or_wait(out.nbytes()));
+    if (a.is_donatable() && a.itemsize() == out.itemsize()) {
+      out.copy_shared_buffer(a);
+    } else if (b.is_donatable() && b.itemsize() == out.itemsize()) {
+      out.copy_shared_buffer(b);
+    } else {
+      out.set_data(allocator::malloc_or_wait(out.nbytes()));
+    }
     vvpowf(out.data<float>(), b.data<float>(), a.data<float>(), &size);
   } else {
     eval(inputs, out);
@@ -587,12 +528,8 @@ void Sin::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     int size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvsinf(out.data<float>(), in.data<float>(), &size);
   } else {
     eval(inputs, out);
@@ -603,12 +540,8 @@ void Sinh::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     int size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvsinhf(out.data<float>(), in.data<float>(), &size);
   } else {
     eval(inputs, out);
@@ -619,12 +552,8 @@ void Square::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
   if (in.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     auto size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vDSP_vsq(in.data<float>(), 1, out.data<float>(), 1, size);
   } else {
     unary(in, out, [](auto x) { return x * x; });
@@ -635,12 +564,8 @@ void Sqrt::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
   if (in.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     int size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     if (recip_) {
       vvrsqrtf(out.data<float>(), in.data<float>(), &size);
     } else {
@@ -695,12 +620,8 @@ void Tan::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     int size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvtanf(out.data<float>(), in.data<float>(), &size);
   } else {
     eval(inputs, out);
@@ -711,12 +632,8 @@ void Tanh::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
   if (out.dtype() == float32 && in.flags().contiguous) {
+    set_unary_output_data(in, out);
     int size = in.data_size();
-    out.set_data(
-        allocator::malloc_or_wait(size * out.itemsize()),
-        size,
-        in.strides(),
-        in.flags());
     vvtanhf(out.data<float>(), in.data<float>(), &size);
   } else {
     eval(inputs, out);
