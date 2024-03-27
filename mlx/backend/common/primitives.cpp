@@ -10,7 +10,7 @@
 #include "mlx/backend/common/arange.h"
 #include "mlx/backend/common/binary.h"
 #include "mlx/backend/common/copy.h"
-#include "mlx/backend/common/erf.h"
+#include "mlx/backend/common/ops.h"
 #include "mlx/backend/common/threefry.h"
 #include "mlx/backend/common/unary.h"
 #include "mlx/backend/common/utils.h"
@@ -22,11 +22,11 @@ namespace mlx::core {
 void Abs::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
-  if (is_unsigned(in.dtype())) {
+  if (issubdtype(in.dtype(), unsignedinteger)) {
     // No-op for unsigned types
     out.copy_shared_buffer(in);
   } else {
-    unary(in, out, AbsOp());
+    unary(in, out, detail::Abs());
   }
 }
 
@@ -37,8 +37,8 @@ void Arange::eval(const std::vector<array>& inputs, array& out) {
 void ArcCos::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::acos(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::ArcCos());
   } else {
     throw std::invalid_argument(
         "[arccos] Cannot compute inverse cosine of elements in array"
@@ -49,8 +49,8 @@ void ArcCos::eval(const std::vector<array>& inputs, array& out) {
 void ArcCosh::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::acosh(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::ArcCosh());
   } else {
     throw std::invalid_argument(
         "[arccosh] Cannot compute inverse hyperbolic cosine of elements in"
@@ -61,8 +61,8 @@ void ArcCosh::eval(const std::vector<array>& inputs, array& out) {
 void ArcSin::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::asin(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::ArcSin());
   } else {
     throw std::invalid_argument(
         "[arcsin] Cannot compute inverse sine of elements in array"
@@ -73,8 +73,8 @@ void ArcSin::eval(const std::vector<array>& inputs, array& out) {
 void ArcSinh::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::asinh(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::ArcSinh());
   } else {
     throw std::invalid_argument(
         "[arcsinh] Cannot compute inverse hyperbolic sine of elements in"
@@ -85,8 +85,8 @@ void ArcSinh::eval(const std::vector<array>& inputs, array& out) {
 void ArcTan::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::atan(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::ArcTan());
   } else {
     throw std::invalid_argument(
         "[arctan] Cannot compute inverse tangent of elements in array"
@@ -97,8 +97,8 @@ void ArcTan::eval(const std::vector<array>& inputs, array& out) {
 void ArcTanh::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::atanh(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::ArcTanh());
   } else {
     throw std::invalid_argument(
         "[arctanh] Cannot compute inverse hyperbolic tangent of elements in"
@@ -171,8 +171,8 @@ void Broadcast::eval(const std::vector<array>& inputs, array& out) {
 void Ceil::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
-  if (not is_integral(in.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::ceil(x); });
+  if (issubdtype(in.dtype(), inexact)) {
+    unary_fp(in, out, detail::Ceil());
   } else {
     // No-op integer types
     out.copy_shared_buffer(in);
@@ -211,8 +211,8 @@ void Copy::eval(const std::vector<array>& inputs, array& out) {
 void Cos::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::cos(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::Cos());
   } else {
     throw std::invalid_argument(
         "[cos] Cannot compute cosine of elements in array"
@@ -223,12 +223,87 @@ void Cos::eval(const std::vector<array>& inputs, array& out) {
 void Cosh::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::cosh(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::Cosh());
   } else {
     throw std::invalid_argument(
         "[cosh] Cannot compute hyperbolic cosine of elements in array"
         " with non floating point type.");
+  }
+}
+
+void CustomVJP::eval(
+    const std::vector<array>& inputs,
+    std::vector<array>& outputs) {
+  assert(inputs.size() > outputs.size());
+  for (int i = 0, j = inputs.size() - outputs.size(); i < outputs.size();
+       i++, j++) {
+    outputs[i].copy_shared_buffer(inputs[j]);
+  }
+}
+
+void Depends::eval(
+    const std::vector<array>& inputs,
+    std::vector<array>& outputs) {
+  assert(inputs.size() > outputs.size());
+  for (int i = 0; i < outputs.size(); i++) {
+    outputs[i].copy_shared_buffer(inputs[i]);
+  }
+}
+
+void NumberOfElements::eval(const std::vector<array>& inputs, array& out) {
+  assert(inputs.size() == 1);
+  out.set_data(allocator::malloc_or_wait(out.nbytes()));
+
+  double numel = 1;
+  for (auto ax : axes_) {
+    numel *= inputs[0].shape(ax);
+  }
+
+  if (inverted_) {
+    numel = 1.0 / numel;
+  }
+
+  switch (out.dtype()) {
+    case bool_:
+      *out.data<bool>() = static_cast<bool>(numel);
+      break;
+    case uint8:
+      *out.data<uint8_t>() = static_cast<uint8_t>(numel);
+      break;
+    case uint16:
+      *out.data<uint16_t>() = static_cast<uint16_t>(numel);
+      break;
+    case uint32:
+      *out.data<uint32_t>() = static_cast<uint32_t>(numel);
+      break;
+    case uint64:
+      *out.data<uint64_t>() = static_cast<uint64_t>(numel);
+      break;
+    case int8:
+      *out.data<int8_t>() = static_cast<int8_t>(numel);
+      break;
+    case int16:
+      *out.data<int16_t>() = static_cast<int16_t>(numel);
+      break;
+    case int32:
+      *out.data<int32_t>() = static_cast<int32_t>(numel);
+      break;
+    case int64:
+      *out.data<int64_t>() = static_cast<int64_t>(numel);
+      break;
+    case float16:
+      *out.data<float16_t>() = static_cast<float16_t>(numel);
+      break;
+    case float32:
+      *out.data<float>() = static_cast<float>(numel);
+      break;
+    case bfloat16:
+      *out.data<bfloat16_t>() = static_cast<bfloat16_t>(numel);
+      break;
+    case complex64:
+      *out.data<complex64_t>() = static_cast<complex64_t>(numel);
+      break;
   }
 }
 
@@ -237,17 +312,13 @@ void Erf::eval(const std::vector<array>& inputs, array& out) {
   const auto& in = inputs[0];
   switch (out.dtype()) {
     case float32:
-      unary_op<float>(in, out, [](auto x) { return std::erf(x); });
+      unary_op<float>(in, out, detail::Erf());
       break;
     case float16:
-      unary_op<float16_t>(in, out, [](auto x) {
-        return static_cast<float16_t>(std::erf(static_cast<float>(x)));
-      });
+      unary_op<float16_t>(in, out, detail::Erf());
       break;
     case bfloat16:
-      unary_op<bfloat16_t>(in, out, [](auto x) {
-        return static_cast<bfloat16_t>(std::erf(static_cast<float>(x)));
-      });
+      unary_op<bfloat16_t>(in, out, detail::Erf());
       break;
     default:
       throw std::invalid_argument(
@@ -261,17 +332,13 @@ void ErfInv::eval(const std::vector<array>& inputs, array& out) {
   const auto& in = inputs[0];
   switch (out.dtype()) {
     case float32:
-      unary_op<float>(in, out, [](auto x) { return erfinv(x); });
+      unary_op<float>(in, out, detail::ErfInv());
       break;
     case float16:
-      unary_op<float16_t>(in, out, [](auto x) {
-        return static_cast<float16_t>(erfinv(static_cast<float>(x)));
-      });
+      unary_op<float16_t>(in, out, detail::ErfInv());
       break;
     case bfloat16:
-      unary_op<bfloat16_t>(in, out, [](auto x) {
-        return static_cast<bfloat16_t>(erfinv(static_cast<float>(x)));
-      });
+      unary_op<bfloat16_t>(in, out, detail::ErfInv());
       break;
     default:
       throw std::invalid_argument(
@@ -283,9 +350,8 @@ void ErfInv::eval(const std::vector<array>& inputs, array& out) {
 void Exp::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::exp(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::Exp());
   } else {
     throw std::invalid_argument(
         "[exp] Cannot exponentiate elements in array"
@@ -296,8 +362,8 @@ void Exp::eval(const std::vector<array>& inputs, array& out) {
 void Floor::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
-  if (not is_integral(in.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::floor(x); });
+  if (issubdtype(in.dtype(), inexact)) {
+    unary_fp(in, out, detail::Floor());
   } else {
     // No-op integer types
     out.copy_shared_buffer(in);
@@ -322,16 +388,16 @@ void Full::eval(const std::vector<array>& inputs, array& out) {
 void Log::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
+  if (issubdtype(out.dtype(), inexact)) {
     switch (base_) {
       case Base::e:
-        unary_fp(in, out, [](auto x) { return std::log(x); });
+        unary_fp(in, out, detail::Log());
         break;
       case Base::two:
-        unary_fp(in, out, [](auto x) { return std::log2(x); });
+        unary_fp(in, out, detail::Log2());
         break;
       case Base::ten:
-        unary_fp(in, out, [](auto x) { return std::log10(x); });
+        unary_fp(in, out, detail::Log10());
         break;
     }
   } else {
@@ -344,8 +410,8 @@ void Log::eval(const std::vector<array>& inputs, array& out) {
 void Log1p::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::log1p(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::Log1p());
   } else {
     throw std::invalid_argument(
         "[log1p] Cannot compute log of elements in array with"
@@ -356,27 +422,27 @@ void Log1p::eval(const std::vector<array>& inputs, array& out) {
 void LogicalNot::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
-  unary(in, out, [](auto x) { return !x; });
+  unary(in, out, detail::LogicalNot());
 }
 
 void LogicalAnd::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 2); // LogicalAnd requires two input arrays
   auto& in1 = inputs[0];
   auto& in2 = inputs[1];
-  binary(in1, in2, out, [](auto x, auto y) { return x && y; });
+  binary(in1, in2, out, detail::LogicalAnd());
 }
 
 void LogicalOr::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 2); // LogicalOr requires two input arrays
   auto& in1 = inputs[0];
   auto& in2 = inputs[1];
-  binary(in1, in2, out, [](auto x, auto y) { return x || y; });
+  binary(in1, in2, out, detail::LogicalOr());
 }
 
 void Negative::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
-  unary(in, out, [](auto x) { return -x; });
+  unary(in, out, detail::Negative());
 }
 
 void Pad::eval(const std::vector<array>& inputs, array& out) {
@@ -458,28 +524,81 @@ void RandomBits::eval(const std::vector<array>& inputs, array& out) {
   }
 }
 
-void Reshape::eval(const std::vector<array>& inputs, array& out) {
-  assert(inputs.size() == 1);
-  const auto& in = inputs[0];
-  if (in.flags().row_contiguous) {
+std::pair<bool, std::vector<size_t>> Reshape::prepare_reshape(
+    const array& in,
+    const array& out) {
+  // Special case for empty arrays or row contiguous arrays
+  if (in.size() == 0 || in.flags().row_contiguous) {
+    return {false, out.strides()};
+  }
+
+  // Special case for scalars
+  if (in.ndim() == 0) {
+    std::vector<size_t> out_strides(out.ndim(), 0);
+    return {false, out_strides};
+  }
+
+  // Firstly let's collapse all the contiguous dimensions of the input
+  auto [shape, _strides] = collapse_contiguous_dims(in);
+  auto& strides = _strides[0];
+
+  // If shapes fit exactly in the contiguous dims then no copy is necessary so
+  // let's check.
+  std::vector<size_t> out_strides;
+  bool copy_necessary = false;
+  int j = 0;
+  for (int i = 0; i < out.ndim(); i++) {
+    int N = out.shape(i);
+    if (j < shape.size() && shape[j] % N == 0) {
+      shape[j] /= N;
+      out_strides.push_back(shape[j] * strides[j]);
+      j += (shape[j] == 1);
+    } else if (N == 1) {
+      // i > 0 because otherwise j < shape.size() && shape[j] % 1 == 0
+      out_strides.push_back(out_strides.back());
+    } else {
+      copy_necessary = true;
+      break;
+    }
+  }
+
+  return {copy_necessary, out_strides};
+}
+
+void Reshape::shared_buffer_reshape(
+    const array& in,
+    const std::vector<size_t>& out_strides,
+    array& out) {
+  auto flags = in.flags();
+  if (flags.row_contiguous) {
     // For row contiguous reshapes:
     // - Shallow copy the buffer
     // - If reshaping into a vector (all singleton dimensions except one) it
     //    becomes col contiguous again.
-    auto flags = in.flags();
     auto max_dim = std::max_element(out.shape().begin(), out.shape().end());
     flags.col_contiguous = out.size() <= 1 || out.size() == *max_dim;
-    out.copy_shared_buffer(in, out.strides(), flags, in.data_size());
-  } else {
+  }
+  out.copy_shared_buffer(in, out_strides, flags, in.data_size());
+}
+
+void Reshape::eval(const std::vector<array>& inputs, array& out) {
+  assert(inputs.size() == 1);
+  const auto& in = inputs[0];
+
+  auto [copy_necessary, out_strides] = prepare_reshape(in, out);
+
+  if (copy_necessary) {
     copy(in, out, in.data_size() == 1 ? CopyType::Scalar : CopyType::General);
+  } else {
+    shared_buffer_reshape(in, out_strides, out);
   }
 }
 
 void Round::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
-  if (not is_integral(in.dtype())) {
-    unary_fp(in, out, RoundOp());
+  if (issubdtype(in.dtype(), inexact)) {
+    unary_fp(in, out, detail::Round());
   } else {
     // No-op integer types
     out.copy_shared_buffer(in);
@@ -489,12 +608,8 @@ void Round::eval(const std::vector<array>& inputs, array& out) {
 void Sigmoid::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    auto sigmoid_op = [](auto x) {
-      auto one = static_cast<decltype(x)>(1.0);
-      return one / (one + std::exp(-x));
-    };
-    unary_fp(in, out, sigmoid_op);
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::Sigmoid());
   } else {
     throw std::invalid_argument(
         "[sigmoid] Cannot sigmoid of elements in array with"
@@ -508,15 +623,15 @@ void Sign::eval(const std::vector<array>& inputs, array& out) {
   if (in.dtype() == bool_) {
     out.copy_shared_buffer(in);
   } else {
-    unary(in, out, SignOp());
+    unary(in, out, detail::Sign());
   }
 }
 
 void Sin::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::sin(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::Sin());
   } else {
     throw std::invalid_argument(
         "[sin] Cannot compute sine of elements in array"
@@ -527,8 +642,8 @@ void Sin::eval(const std::vector<array>& inputs, array& out) {
 void Sinh::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::sinh(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::Sinh());
   } else {
     throw std::invalid_argument(
         "[sinh] Cannot compute hyperbolic sine of elements in array"
@@ -536,36 +651,33 @@ void Sinh::eval(const std::vector<array>& inputs, array& out) {
   }
 }
 
-void Slice::eval(const std::vector<array>& inputs, array& out) {
-  assert(inputs.size() == 1);
-  if (out.size() == 0) {
-    out.set_data(nullptr);
-    return;
-  }
-  auto& in = inputs[0];
-  auto strides = in.strides();
-  auto flags = in.flags();
-  size_t data_offset = 0;
+std::tuple<bool, int64_t, std::vector<int64_t>> Slice::prepare_slice(
+    const array& in) {
+  int64_t data_offset = 0;
+  bool copy_needed = false;
+  std::vector<int64_t> inp_strides(in.ndim(), 0);
   for (int i = 0; i < in.ndim(); ++i) {
     data_offset += start_indices_[i] * in.strides()[i];
-    strides[i] *= strides_[i];
+    inp_strides[i] = in.strides()[i] * strides_[i];
+
+    copy_needed |= strides_[i] < 0;
   }
 
+  return std::make_tuple(copy_needed, data_offset, inp_strides);
+}
+
+void Slice::shared_buffer_slice(
+    const array& in,
+    const std::vector<size_t>& out_strides,
+    size_t data_offset,
+    array& out) {
   // Compute row/col contiguity
-  size_t data_size = 1;
-  size_t f_stride = 1;
-  size_t b_stride = 1;
-  flags.row_contiguous = true;
-  flags.col_contiguous = true;
-  for (int i = 0, ri = out.ndim() - 1; ri >= 0; i++, ri--) {
-    flags.col_contiguous &= strides[i] == f_stride || out.shape(i) == 1;
-    flags.row_contiguous &= strides[ri] == b_stride || out.shape(ri) == 1;
-    f_stride *= out.shape(i);
-    b_stride *= out.shape(ri);
-    if (strides[i] > 0) {
-      data_size *= out.shape(i);
-    }
-  }
+  auto [data_size, is_row_contiguous, is_col_contiguous] =
+      check_contiguity(out.shape(), out_strides);
+
+  auto flags = in.flags();
+  flags.row_contiguous = is_row_contiguous;
+  flags.col_contiguous = is_col_contiguous;
 
   if (data_size == 1) {
     // Broadcasted scalar array is contiguous.
@@ -579,7 +691,87 @@ void Slice::eval(const std::vector<array>& inputs, array& out) {
     flags.contiguous &= flags.row_contiguous || flags.col_contiguous;
   }
 
-  out.copy_shared_buffer(in, strides, flags, data_size, data_offset);
+  out.copy_shared_buffer(in, out_strides, flags, data_size, data_offset);
+}
+
+void Slice::eval(const std::vector<array>& inputs, array& out) {
+  assert(inputs.size() == 1);
+  if (out.size() == 0) {
+    out.set_data(nullptr);
+    return;
+  }
+
+  auto& in = inputs[0];
+
+  // Calculate out strides, initial offset and if copy needs to be made
+  auto [copy_needed, data_offset, inp_strides] = prepare_slice(in);
+
+  // Do copy if needed
+  if (copy_needed) {
+    out.set_data(allocator::malloc_or_wait(out.nbytes()));
+    std::vector<int64_t> ostrides{out.strides().begin(), out.strides().end()};
+    copy_inplace<int64_t>(
+        /* const array& src = */ in,
+        /* array& dst = */ out,
+        /* const std::vector<int>& data_shape = */ out.shape(),
+        /* const std::vector<stride_t>& i_strides = */ inp_strides,
+        /* const std::vector<stride_t>& o_strides = */ ostrides,
+        /* int64_t i_offset = */ data_offset,
+        /* int64_t o_offset = */ 0,
+        /* CopyType ctype = */ CopyType::General);
+  } else {
+    std::vector<size_t> ostrides{inp_strides.begin(), inp_strides.end()};
+    shared_buffer_slice(in, ostrides, data_offset, out);
+  }
+}
+
+std::tuple<int64_t, std::vector<int64_t>> SliceUpdate::prepare_slice(
+    const array& in) {
+  int64_t data_offset = 0;
+  std::vector<int64_t> inp_strides(in.ndim(), 0);
+  for (int i = 0; i < in.ndim(); ++i) {
+    data_offset += start_indices_[i] * in.strides()[i];
+    inp_strides[i] = in.strides()[i] * strides_[i];
+  }
+
+  return std::make_tuple(data_offset, inp_strides);
+}
+
+void SliceUpdate::eval(const std::vector<array>& inputs, array& out) {
+  assert(inputs.size() == 2);
+  if (out.size() == 0) {
+    out.set_data(nullptr);
+    return;
+  }
+
+  auto& in = inputs[0];
+  auto& upd = inputs[1];
+
+  if (upd.size() == 0) {
+    out.copy_shared_buffer(in);
+    return;
+  }
+
+  // Check if materialization is needed
+  auto ctype = in.flags().contiguous && in.size() == in.data_size()
+      ? CopyType::Vector
+      : CopyType::General;
+  copy(in, out, in.data_size() == 1 ? CopyType::Scalar : ctype);
+
+  // Calculate out strides, initial offset and if copy needs to be made
+  auto [data_offset, out_strides] = prepare_slice(out);
+
+  // Do copy
+  std::vector<int64_t> upd_strides{upd.strides().begin(), upd.strides().end()};
+  copy_inplace<int64_t>(
+      /* const array& src = */ upd,
+      /* array& dst = */ out,
+      /* const std::vector<int>& data_shape = */ upd.shape(),
+      /* const std::vector<stride_t>& i_strides = */ upd_strides,
+      /* const std::vector<stride_t>& o_strides = */ out_strides,
+      /* int64_t i_offset = */ 0,
+      /* int64_t o_offset = */ data_offset,
+      /* CopyType ctype = */ CopyType::GeneralGeneral);
 }
 
 void Split::eval(
@@ -637,18 +829,16 @@ void Split::eval(
 void Square::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
-  unary(in, out, [](auto x) { return x * x; });
+  unary(in, out, detail::Square());
 }
 
 void Sqrt::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   auto& in = inputs[0];
   if (recip_) {
-    unary_fp(in, out, [](auto x) {
-      return static_cast<decltype(x)>(1.0) / sqrt(x);
-    });
+    unary_fp(in, out, detail::Rsqrt());
   } else {
-    unary_fp(in, out, [](auto x) { return sqrt(x); });
+    unary_fp(in, out, detail::Sqrt());
   }
 }
 
@@ -660,8 +850,8 @@ void StopGradient::eval(const std::vector<array>& inputs, array& out) {
 void Tan::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::tan(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::Tan());
   } else {
     throw std::invalid_argument(
         "[tan] Cannot compute tangent of elements in array"
@@ -672,8 +862,8 @@ void Tan::eval(const std::vector<array>& inputs, array& out) {
 void Tanh::eval(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (is_floating_point(out.dtype())) {
-    unary_fp(in, out, [](auto x) { return std::tanh(x); });
+  if (issubdtype(out.dtype(), inexact)) {
+    unary_fp(in, out, detail::Tanh());
   } else {
     throw std::invalid_argument(
         "[tanh] Cannot compute hyperbolic tangent of elements in array"

@@ -1,7 +1,7 @@
-// Copyright © 2023 Apple Inc.
+// Copyright © 2023-2024 Apple Inc.
 
 #ifdef ACCELERATE_NEW_LAPACK
-#include <vecLib/cblas_new.h>
+#include <Accelerate/Accelerate.h>
 #else
 #include <cblas.h>
 #endif
@@ -41,13 +41,17 @@ DEFAULT(ArgSort)
 DEFAULT(AsType)
 DEFAULT(AsStrided)
 DEFAULT(Broadcast)
+DEFAULT_MULTI(DivMod)
 DEFAULT(Ceil)
 DEFAULT(Concatenate)
 DEFAULT(Convolution)
 DEFAULT(Copy)
 DEFAULT(Cos)
 DEFAULT(Cosh)
+DEFAULT_MULTI(CustomVJP)
+DEFAULT_MULTI(Depends)
 DEFAULT(Divide)
+DEFAULT(NumberOfElements)
 DEFAULT(Remainder)
 DEFAULT(Equal)
 DEFAULT(Erf)
@@ -76,6 +80,7 @@ DEFAULT(NotEqual)
 DEFAULT(Pad)
 DEFAULT(Partition)
 DEFAULT(Power)
+DEFAULT_MULTI(QRF)
 DEFAULT(QuantizedMatmul)
 DEFAULT(RandomBits)
 DEFAULT(Reduce)
@@ -83,11 +88,13 @@ DEFAULT(Reshape)
 DEFAULT(Round)
 DEFAULT(Scan)
 DEFAULT(Scatter)
+DEFAULT(Select)
 DEFAULT(Sigmoid)
 DEFAULT(Sign)
 DEFAULT(Sin)
 DEFAULT(Sinh)
 DEFAULT(Slice)
+DEFAULT(SliceUpdate)
 DEFAULT(Softmax)
 DEFAULT(Sort)
 DEFAULT_MULTI(Split)
@@ -95,11 +102,11 @@ DEFAULT(Square)
 DEFAULT(Sqrt)
 DEFAULT(StopGradient)
 DEFAULT(Subtract)
+DEFAULT_MULTI(SVD)
 DEFAULT(Tan)
 DEFAULT(Tanh)
 DEFAULT(Transpose)
-DEFAULT_MULTI(DivMod)
-DEFAULT_MULTI(QRF)
+DEFAULT(Inverse)
 
 namespace {
 
@@ -129,7 +136,9 @@ inline void matmul_common_general(
   size_t M = a.shape(-2);
   size_t N = b.shape(-1);
   size_t K = a.shape(-1);
-
+  if (M == 0 || N == 0) {
+    return;
+  }
   if (K == 0) {
     std::memset(static_cast<void*>(out.data<float>()), 0, out.nbytes());
     return;

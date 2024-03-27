@@ -1,5 +1,6 @@
 // Copyright © 2023 Apple Inc.
 #pragma once
+
 #include <algorithm>
 #include <cstdint>
 #include <functional>
@@ -31,7 +32,7 @@ class array {
   template <typename It>
   array(
       It data,
-      const std::vector<int>& shape,
+      std::vector<int> shape,
       Dtype dtype =
           TypeToDtype<typename std::iterator_traits<It>::value_type>());
 
@@ -41,16 +42,19 @@ class array {
   /* Special case so empty lists default to float32. */
   array(std::initializer_list<float> data);
 
+  /* Special case so array({}, type) is an empty array. */
+  array(std::initializer_list<int> data, Dtype dtype);
+
   template <typename T>
   array(
       std::initializer_list<T> data,
-      const std::vector<int>& shape,
+      std::vector<int> shape,
       Dtype dtype = TypeToDtype<T>());
 
   /* Build an array from a buffer */
   array(
       allocator::Buffer data,
-      const std::vector<int>& shape,
+      std::vector<int> shape,
       Dtype dtype,
       deleter_t deleter = allocator::free);
 
@@ -121,6 +125,9 @@ class array {
   template <typename T>
   T item();
 
+  template <typename T>
+  T item() const;
+
   struct ArrayIterator {
     using iterator_category = std::random_access_iterator_tag;
     using difference_type = size_t;
@@ -167,21 +174,15 @@ class array {
    */
 
   array(
-      const std::vector<int>& shape,
-      Dtype dtype,
-      std::shared_ptr<Primitive> primitive,
-      const std::vector<array>& inputs);
-
-  array(
       std::vector<int> shape,
       Dtype dtype,
       std::shared_ptr<Primitive> primitive,
-      std::vector<array>&& inputs);
+      std::vector<array> inputs);
 
   static std::vector<array> make_arrays(
-      const std::vector<std::vector<int>>& shapes,
+      std::vector<std::vector<int>> shapes,
       const std::vector<Dtype>& dtypes,
-      std::shared_ptr<Primitive> primitive,
+      const std::shared_ptr<Primitive>& primitive,
       const std::vector<array>& inputs);
 
   /** A unique identifier for an array. */
@@ -254,6 +255,17 @@ class array {
     array_desc_->siblings = std::move(siblings);
     array_desc_->position = position;
   }
+
+  /** The i-th output of the array's primitive. */
+  const array& output(int i) const {
+    if (i == array_desc_->position) {
+      return *this;
+    } else if (i < array_desc_->position) {
+      return siblings()[i];
+    } else {
+      return siblings()[i + 1];
+    }
+  };
 
   /** The outputs of the array's primitive (i.e. this array and
    * its siblings) in the order the primitive expects. */
@@ -333,6 +345,13 @@ class array {
 
   void copy_shared_buffer(const array& other);
 
+  void move_shared_buffer(
+      array other,
+      const std::vector<size_t>& strides,
+      Flags flags,
+      size_t data_size,
+      size_t offset = 0);
+
   void move_shared_buffer(array other);
 
   void overwrite_descriptor(const array& other) {
@@ -349,7 +368,7 @@ class array {
     std::vector<size_t> strides;
     size_t size;
     Dtype dtype;
-    std::shared_ptr<Primitive> primitive{nullptr};
+    std::shared_ptr<Primitive> primitive;
 
     // Indicates an array is being used in a graph transform
     // and should not be detached from the graph
@@ -357,7 +376,7 @@ class array {
 
     // This is a shared pointer so that *different* arrays
     // can share the underlying data buffer.
-    std::shared_ptr<Data> data{nullptr};
+    std::shared_ptr<Data> data;
 
     // Properly offset data pointer
     void* data_ptr{nullptr};
@@ -377,26 +396,24 @@ class array {
     // The arrays position in the output list
     uint32_t position{0};
 
-    explicit ArrayDesc(const std::vector<int>& shape, Dtype dtype);
+    explicit ArrayDesc(std::vector<int> shape, Dtype dtype);
 
     explicit ArrayDesc(
-        const std::vector<int>& shape,
+        std::vector<int> shape,
         Dtype dtype,
         std::shared_ptr<Primitive> primitive,
-        const std::vector<array>& inputs);
+        std::vector<array> inputs);
 
-    explicit ArrayDesc(
-        std::vector<int>&& shape,
-        Dtype dtype,
-        std::shared_ptr<Primitive> primitive,
-        std::vector<array>&& inputs);
+   private:
+    // Initialize size, strides, and other metadata
+    void init();
   };
 
   // The ArrayDesc contains the details of the materialized array including the
   // shape, strides, the data type. It also includes
   // the primitive which knows how to compute the array's data from its inputs
-  // and a the list of array's inputs for the primitive.
-  std::shared_ptr<ArrayDesc> array_desc_{nullptr};
+  // and the list of array's inputs for the primitive.
+  std::shared_ptr<ArrayDesc> array_desc_;
 };
 
 template <typename T>
@@ -408,9 +425,9 @@ array::array(T val, Dtype dtype /* = TypeToDtype<T>() */)
 template <typename It>
 array::array(
   It data,
-  const std::vector<int>& shape,
+  std::vector<int> shape,
   Dtype dtype /* = TypeToDtype<typename std::iterator_traits<It>::value_type>() */) :
-    array_desc_(std::make_shared<ArrayDesc>(shape, dtype)) {
+    array_desc_(std::make_shared<ArrayDesc>(std::move(shape), dtype)) {
   init(data);
 }
 
@@ -427,9 +444,9 @@ array::array(
 template <typename T>
 array::array(
     std::initializer_list<T> data,
-    const std::vector<int>& shape,
+    std::vector<int> shape,
     Dtype dtype /* = TypeToDtype<T>() */)
-    : array_desc_(std::make_shared<ArrayDesc>(shape, dtype)) {
+    : array_desc_(std::make_shared<ArrayDesc>(std::move(shape), dtype)) {
   if (data.size() != size()) {
     throw std::invalid_argument(
         "Data size and provided shape mismatch in array construction.");
@@ -443,6 +460,18 @@ T array::item() {
     throw std::invalid_argument("item can only be called on arrays of size 1.");
   }
   eval();
+  return *data<T>();
+}
+
+template <typename T>
+T array::item() const {
+  if (size() != 1) {
+    throw std::invalid_argument("item can only be called on arrays of size 1.");
+  }
+  if (!is_evaled()) {
+    throw std::invalid_argument(
+        "item() const can only be called on evaled arrays");
+  }
   return *data<T>();
 }
 
@@ -491,5 +520,16 @@ void array::init(It src) {
       break;
   }
 }
+
+/* Utilities for determining whether a template parameter is array. */
+template <typename T>
+inline constexpr bool is_array_v =
+    std::is_same_v<std::remove_cv_t<std::remove_reference_t<T>>, array>;
+
+template <typename... T>
+inline constexpr bool is_arrays_v = (is_array_v<T> && ...);
+
+template <typename... T>
+using enable_for_arrays_t = typename std::enable_if_t<is_arrays_v<T...>>;
 
 } // namespace mlx::core

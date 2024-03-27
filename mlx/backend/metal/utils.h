@@ -9,28 +9,41 @@ namespace mlx::core {
 
 namespace {
 
-void set_array_buffer(
-    MTL::ComputeCommandEncoder* compute_encoder,
-    MTL::ArgumentEncoder* enc,
-    const array& a,
-    int idx) {
+inline void
+set_array_buffer(MTL::ComputeCommandEncoder* enc, const array& a, int idx) {
   auto a_buf = static_cast<const MTL::Buffer*>(a.buffer().ptr());
   auto offset = a.data<char>() -
       static_cast<char*>(const_cast<MTL::Buffer*>(a_buf)->contents());
   enc->setBuffer(a_buf, offset, idx);
-  // MTL::Resource usage through argument buffer needs to be explicitly
-  // flagged to enable hazard tracking
-  compute_encoder->useResource(a_buf, MTL::ResourceUsageRead);
 }
 
-void set_array_buffer(
+inline void set_array_buffer(
     MTL::ComputeCommandEncoder* enc,
     const array& a,
+    int64_t offset,
     int idx) {
   auto a_buf = static_cast<const MTL::Buffer*>(a.buffer().ptr());
-  auto offset = a.data<char>() -
+  auto base_offset = a.data<char>() -
       static_cast<char*>(const_cast<MTL::Buffer*>(a_buf)->contents());
-  enc->setBuffer(a_buf, offset, idx);
+  base_offset += offset;
+  enc->setBuffer(a_buf, base_offset, idx);
+}
+
+template <typename T>
+inline void set_vector_bytes(
+    MTL::ComputeCommandEncoder* enc,
+    const std::vector<T>& vec,
+    size_t nelems,
+    int idx) {
+  enc->setBytes(vec.data(), nelems * sizeof(T), idx);
+}
+
+template <typename T>
+inline void set_vector_bytes(
+    MTL::ComputeCommandEncoder* enc,
+    const std::vector<T>& vec,
+    int idx) {
+  return set_vector_bytes(enc, vec, vec.size(), idx);
 }
 
 std::string type_to_name(const array& a) {
@@ -108,60 +121,6 @@ MTL::Size get_block_dims(int dim0, int dim1, int dim2) {
     }
   }
   return MTL::Size{1ul << pows[0], 1ul << pows[1], 1ul << pows[2]};
-}
-
-// Collapse dims that are contiguous to possibly route to a better kernel
-// e.g. for x = transpose(array({0, 1, 2, 3, 4, 5, 6, 7}, {2, 2, 2}), {2, 0, 1})
-// should return {{2, 4}, {{1, 2}}}.
-//
-// When multiple arrays are passed they should all have the same shape. The
-// collapsed axes are also the same so one shape is returned.
-std::tuple<std::vector<int>, std::vector<std::vector<size_t>>>
-collapse_contiguous_dims(const std::vector<array>& xs) {
-  // Make a vector that has axes separated with -1. Collapse all axes between
-  // -1.
-  std::vector<int> to_collapse;
-  if (xs[0].ndim() > 0) {
-    to_collapse.push_back(0);
-    for (int i = 1; i < xs[0].ndim(); i++) {
-      bool contiguous = true;
-      for (auto& x : xs) {
-        if (x.strides()[i] * x.shape()[i] != x.strides()[i - 1]) {
-          contiguous = false;
-        }
-        if (!contiguous) {
-          break;
-        }
-      }
-      if (!contiguous) {
-        to_collapse.push_back(-1);
-      }
-      to_collapse.push_back(i);
-    }
-    to_collapse.push_back(-1);
-  }
-
-  std::vector<int> out_shape;
-  std::vector<std::vector<size_t>> out_strides(xs.size());
-  for (int i = 0; i < to_collapse.size(); i++) {
-    int current_shape = xs[0].shape()[to_collapse[i]];
-    while (to_collapse[++i] != -1) {
-      current_shape *= xs[0].shape()[to_collapse[i]];
-    }
-    out_shape.push_back(current_shape);
-    for (int j = 0; j < xs.size(); j++) {
-      out_strides[j].push_back(xs[j].strides()[to_collapse[i - 1]]);
-    }
-  }
-
-  return std::make_tuple(out_shape, out_strides);
-}
-
-template <typename... Arrays>
-std::tuple<std::vector<int>, std::vector<std::vector<size_t>>>
-collapse_contiguous_dims(Arrays... xs) {
-  return collapse_contiguous_dims(
-      std::vector<array>{std::forward<Arrays>(xs)...});
 }
 
 } // namespace

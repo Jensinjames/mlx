@@ -41,6 +41,7 @@ are the CPU and GPU.
    usage/indexing
    usage/saving_and_loading
    usage/function_transforms
+   usage/compile
    usage/numpy
    usage/using_streams
 
@@ -57,12 +58,15 @@ are the CPU and GPU.
    :maxdepth: 1
 
    python/array
+   python/data_types
    python/devices_and_streams
    python/ops
    python/random
    python/transforms
+   python/fast
    python/fft
    python/linalg
+   python/metal
    python/nn
    python/optimizers
    python/tree_utils

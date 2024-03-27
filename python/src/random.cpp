@@ -1,25 +1,71 @@
-// Copyright © 2023 Apple Inc.
+// Copyright © 2023-2024 Apple Inc.
 
-#include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
+#include <nanobind/nanobind.h>
+#include <nanobind/stl/optional.h>
+#include <nanobind/stl/variant.h>
+#include <nanobind/stl/vector.h>
+
+#include <chrono>
 
 #include "python/src/utils.h"
 
 #include "mlx/ops.h"
 #include "mlx/random.h"
 
-namespace py = pybind11;
-using namespace py::literals;
+namespace nb = nanobind;
+using namespace nb::literals;
 using namespace mlx::core;
 using namespace mlx::core::random;
 
-void init_random(py::module_& parent_module) {
+class PyKeySequence {
+ public:
+  explicit PyKeySequence(uint64_t seed) {
+    state_.append(key(seed));
+  }
+
+  void seed(uint64_t seed) {
+    state_[0] = key(seed);
+  }
+
+  array next() {
+    auto out = split(nb::cast<array>(state_[0]));
+    state_[0] = out.first;
+    return out.second;
+  }
+
+  nb::list state() {
+    return state_;
+  }
+
+  void release() {
+    nb::gil_scoped_acquire gil;
+    state_.release().dec_ref();
+  }
+
+ private:
+  nb::list state_;
+};
+
+PyKeySequence& default_key() {
+  auto get_current_time_seed = []() {
+    auto now = std::chrono::system_clock::now();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               now.time_since_epoch())
+        .count();
+  };
+  static PyKeySequence ks(get_current_time_seed());
+  return ks;
+}
+
+void init_random(nb::module_& parent_module) {
   auto m = parent_module.def_submodule(
       "random",
       "mlx.core.random: functionality related to random number generation");
+
+  m.attr("state") = default_key().state();
   m.def(
       "seed",
-      &seed,
+      [](uint64_t seed) { default_key().seed(seed); },
       "seed"_a,
       R"pbdoc(
         Seed the global PRNG.
@@ -42,10 +88,12 @@ void init_random(py::module_& parent_module) {
       )pbdoc");
   m.def(
       "split",
-      py::overload_cast<const array&, int, StreamOrDevice>(&random::split),
+      nb::overload_cast<const array&, int, StreamOrDevice>(&random::split),
       "key"_a,
       "num"_a = 2,
-      "stream"_a = none,
+      "stream"_a = nb::none(),
+      nb::sig(
+          "def split(key: array, num: int = 2, stream: Union[None, Stream, Device] = None) -> array)"),
       R"pbdoc(
         Split a PRNG key into sub keys.
 
@@ -62,8 +110,9 @@ void init_random(py::module_& parent_module) {
          const ScalarOrArray& high,
          const std::vector<int>& shape,
          std::optional<Dtype> type,
-         const std::optional<array>& key,
+         const std::optional<array>& key_,
          StreamOrDevice s) {
+        auto key = key_ ? key_.value() : default_key().next();
         return uniform(
             to_array(low),
             to_array(high),
@@ -75,9 +124,11 @@ void init_random(py::module_& parent_module) {
       "low"_a = 0,
       "high"_a = 1,
       "shape"_a = std::vector<int>{},
-      "dtype"_a = std::optional{float32},
-      "key"_a = none,
-      "stream"_a = none,
+      "dtype"_a.none() = float32,
+      "key"_a = nb::none(),
+      "stream"_a = nb::none(),
+      nb::sig(
+          "def uniform(low: Union[scalar, array] = 0, high: Union[scalar, array] = 1, shape: Sequence[int] = [], dtype: Optional[Dtype] = float32, key: Optional[array] = None, stream: Union[None, Stream, Device] = None) -> array"),
       R"pbdoc(
         Generate uniformly distributed random numbers.
 
@@ -89,7 +140,7 @@ void init_random(py::module_& parent_module) {
             low (scalar or array, optional): Lower bound of the distribution. Default is ``0``.
             high (scalar or array, optional): Upper bound of the distribution. Default is ``1``.
             shape (list(int), optional): Shape of the output. Default is ``()``.
-            key (array, optional): A PRNG key. Default: None.
+            key (array, optional): A PRNG key. Default: ``None``.
             dtype (Dtype, optional): Type of the output. Default is ``float32``.
 
         Returns:
@@ -99,21 +150,29 @@ void init_random(py::module_& parent_module) {
       "normal",
       [](const std::vector<int>& shape,
          std::optional<Dtype> type,
-         const std::optional<array>& key,
+         float loc,
+         float scale,
+         const std::optional<array>& key_,
          StreamOrDevice s) {
-        return normal(shape, type.value_or(float32), key, s);
+        auto key = key_ ? key_.value() : default_key().next();
+        return normal(shape, type.value_or(float32), loc, scale, key, s);
       },
-
       "shape"_a = std::vector<int>{},
-      "dtype"_a = std::optional{float32},
-      "key"_a = none,
-      "stream"_a = none,
+      "dtype"_a.none() = float32,
+      "loc"_a = 0.0,
+      "scale"_a = 1.0,
+      "key"_a = nb::none(),
+      "stream"_a = nb::none(),
+      nb::sig(
+          "def normal(shape: Sequence[int] = [], dtype: Optional[Dtype] = float32, loc: float = 0.0, scale: float = 1.0, key: Optional[array] = None, stream: Union[None, Stream, Device] = None) -> array"),
       R"pbdoc(
         Generate normally distributed random numbers.
 
         Args:
             shape (list(int), optional): Shape of the output. Default is ``()``.
             dtype (Dtype, optional): Type of the output. Default is ``float32``.
+            loc (float, optional): Mean of the distribution. Default is ``0.0``.
+            scale (float, optional): Standard deviation of the distribution. Default is ``1.0``.
             key (array, optional): A PRNG key. Default: None.
 
         Returns:
@@ -125,17 +184,20 @@ void init_random(py::module_& parent_module) {
          const ScalarOrArray& high,
          const std::vector<int>& shape,
          std::optional<Dtype> type,
-         const std::optional<array>& key,
+         const std::optional<array>& key_,
          StreamOrDevice s) {
+        auto key = key_ ? key_.value() : default_key().next();
         return randint(
             to_array(low), to_array(high), shape, type.value_or(int32), key, s);
       },
       "low"_a,
       "high"_a,
       "shape"_a = std::vector<int>{},
-      "dtype"_a = int32,
-      "key"_a = none,
-      "stream"_a = none,
+      "dtype"_a.none() = int32,
+      "key"_a = nb::none(),
+      "stream"_a = nb::none(),
+      nb::sig(
+          "def randint(low: Union[scalar, array], high: Union[scalar, array], shape: Sequence[int] = [], dtype: Optional[Dtype] = int32, key: Optional[array] = None, stream: Union[None, Stream, Device] = None) -> array"),
       R"pbdoc(
         Generate random integers from the given interval.
 
@@ -157,8 +219,9 @@ void init_random(py::module_& parent_module) {
       "bernoulli",
       [](const ScalarOrArray& p_,
          const std::optional<std::vector<int>> shape,
-         const std::optional<array>& key,
+         const std::optional<array>& key_,
          StreamOrDevice s) {
+        auto key = key_ ? key_.value() : default_key().next();
         auto p = to_array(p_);
         if (shape.has_value()) {
           return bernoulli(p, shape.value(), key, s);
@@ -167,9 +230,11 @@ void init_random(py::module_& parent_module) {
         }
       },
       "p"_a = 0.5,
-      "shape"_a = none,
-      "key"_a = none,
-      "stream"_a = none,
+      "shape"_a = nb::none(),
+      "key"_a = nb::none(),
+      "stream"_a = nb::none(),
+      nb::sig(
+          "def bernoulli(p: Union[scalar, array] = 0.5, shape: Optional[Sequence[int]] = None, key: Optional[array] = None, stream: Union[None, Stream, Device] = None) -> array"),
       R"pbdoc(
         Generate Bernoulli random values.
 
@@ -193,8 +258,9 @@ void init_random(py::module_& parent_module) {
          const ScalarOrArray& upper_,
          const std::optional<std::vector<int>> shape_,
          std::optional<Dtype> type,
-         const std::optional<array>& key,
+         const std::optional<array>& key_,
          StreamOrDevice s) {
+        auto key = key_ ? key_.value() : default_key().next();
         auto lower = to_array(lower_);
         auto upper = to_array(upper_);
         auto t = type.value_or(float32);
@@ -206,10 +272,12 @@ void init_random(py::module_& parent_module) {
       },
       "lower"_a,
       "upper"_a,
-      "shape"_a = none,
-      "dtype"_a = std::optional{float32},
-      "key"_a = none,
-      "stream"_a = none,
+      "shape"_a = nb::none(),
+      "dtype"_a.none() = float32,
+      "key"_a = nb::none(),
+      "stream"_a = nb::none(),
+      nb::sig(
+          "def truncated_normal(lower: Union[scalar, array], upper: Union[scalar, array], shape: Optional[Sequence[int]] = None, dtype: float32, key: Optional[array] = None, stream: Union[None, Stream, Device] = None) -> array"),
       R"pbdoc(
         Generate values from a truncated normal distribution.
 
@@ -233,14 +301,17 @@ void init_random(py::module_& parent_module) {
       "gumbel",
       [](const std::vector<int>& shape,
          std::optional<Dtype> type,
-         const std::optional<array>& key,
+         const std::optional<array>& key_,
          StreamOrDevice s) {
+        auto key = key_ ? key_.value() : default_key().next();
         return gumbel(shape, type.value_or(float32), key, s);
       },
       "shape"_a = std::vector<int>{},
-      "dtype"_a = std::optional{float32},
-      "stream"_a = none,
-      "key"_a = none,
+      "dtype"_a.none() = float32,
+      "stream"_a = nb::none(),
+      "key"_a = nb::none(),
+      nb::sig(
+          "def gumbel(shape: Sequence[int] = [], dtype: Optional[Dtype] = float32, stream: Optional[array] = None, key: Union[None, Stream, Device] = None) -> array"),
       R"pbdoc(
         Sample from the standard Gumbel distribution.
 
@@ -261,8 +332,9 @@ void init_random(py::module_& parent_module) {
          int axis,
          const std::optional<std::vector<int>> shape,
          const std::optional<int> num_samples,
-         const std::optional<array>& key,
+         const std::optional<array>& key_,
          StreamOrDevice s) {
+        auto key = key_ ? key_.value() : default_key().next();
         if (shape.has_value() && num_samples.has_value()) {
           throw std::invalid_argument(
               "[categorical] At most one of shape or num_samples can be specified.");
@@ -276,10 +348,12 @@ void init_random(py::module_& parent_module) {
       },
       "logits"_a,
       "axis"_a = -1,
-      "shape"_a = none,
-      "num_samples"_a = none,
-      "key"_a = none,
-      "stream"_a = none,
+      "shape"_a = nb::none(),
+      "num_samples"_a = nb::none(),
+      "key"_a = nb::none(),
+      "stream"_a = nb::none(),
+      nb::sig(
+          "def categorical(logits: array, axis: int = -1, shape: Optional[Sequence[int]] = None, num_samples: Optional[int] = None, key: Optional[array] = None, stream: Union[None, Stream, Device] = None) -> array"),
       R"pbdoc(
         Sample from a categorical distribution.
 
@@ -303,4 +377,7 @@ void init_random(py::module_& parent_module) {
         Returns:
             array: The ``shape``-sized output array with type ``uint32``.
       )pbdoc");
+  // Register static Python object cleanup before the interpreter exits
+  auto atexit = nb::module_::import_("atexit");
+  atexit.attr("register")(nb::cpp_function([]() { default_key().release(); }));
 }

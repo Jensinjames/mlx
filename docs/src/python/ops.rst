@@ -25,6 +25,9 @@ Operations
    argpartition
    argsort
    array_equal
+   atleast_1d
+   atleast_2d
+   atleast_3d
    broadcast_to
    ceil
    clip
@@ -32,9 +35,16 @@ Operations
    convolve
    conv1d
    conv2d
+   conv_general
    cos
    cosh
+   cummax
+   cummin
+   cumprod
+   cumsum
    dequantize
+   diag
+   diagonal
    divide
    divmod
    equal
@@ -51,10 +61,11 @@ Operations
    greater_equal
    identity
    inner
-   isnan
-   isposinf
-   isneginf
+   isclose
    isinf
+   isnan
+   isneginf
+   isposinf
    less
    less_equal
    linspace
@@ -115,6 +126,8 @@ Operations
    tan
    tanh
    tensordot
+   tile
+   topk
    transpose
    tri
    tril

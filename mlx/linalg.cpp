@@ -11,7 +11,7 @@
 namespace mlx::core::linalg {
 
 Dtype at_least_float(const Dtype& d) {
-  return is_floating_point(d) ? d : promote_types(d, float32);
+  return issubdtype(d, inexact) ? d : promote_types(d, float32);
 }
 
 inline array l2_norm(
@@ -19,7 +19,7 @@ inline array l2_norm(
     const std::vector<int>& axis,
     bool keepdims,
     StreamOrDevice s) {
-  if (is_complex(a.dtype())) {
+  if (issubdtype(a.dtype(), complexfloating)) {
     return sqrt(sum(abs(a, s) * abs(a, s), axis, keepdims, s), s);
   } else {
     return sqrt(sum(square(a, s), axis, keepdims, s), s);
@@ -195,9 +195,70 @@ std::pair<array, array> qr(const array& a, StreamOrDevice s /* = {} */) {
   auto out = array::make_arrays(
       {a.shape(), a.shape()},
       {a.dtype(), a.dtype()},
-      std::make_unique<QRF>(to_stream(s)),
+      std::make_shared<QRF>(to_stream(s)),
       {astype(a, a.dtype(), s)});
   return std::make_pair(out[0], out[1]);
+}
+
+std::vector<array> svd(const array& a, StreamOrDevice s /* = {} */) {
+  if (a.dtype() != float32) {
+    std::ostringstream msg;
+    msg << "[linalg::svd] Input array must have type float32. Received array "
+        << "with type " << a.dtype() << ".";
+    throw std::invalid_argument(msg.str());
+  }
+  if (a.ndim() < 2) {
+    std::ostringstream msg;
+    msg << "[linalg::svd] Input array must have >= 2 dimensions. Received array "
+           "with "
+        << a.ndim() << " dimensions.";
+    throw std::invalid_argument(msg.str());
+  }
+
+  const auto m = a.shape(-2);
+  const auto n = a.shape(-1);
+  const auto rank = a.ndim();
+
+  std::vector<int> u_shape = a.shape();
+  u_shape[rank - 2] = m;
+  u_shape[rank - 1] = m;
+
+  std::vector<int> s_shape = a.shape();
+  s_shape.pop_back();
+  s_shape[rank - 2] = std::min(m, n);
+
+  std::vector<int> vt_shape = a.shape();
+  vt_shape[rank - 2] = n;
+  vt_shape[rank - 1] = n;
+
+  return array::make_arrays(
+      {u_shape, s_shape, vt_shape},
+      {a.dtype(), a.dtype(), a.dtype()},
+      std::make_shared<SVD>(to_stream(s)),
+      {a});
+}
+
+array inv(const array& a, StreamOrDevice s /* = {} */) {
+  if (a.dtype() != float32) {
+    std::ostringstream msg;
+    msg << "[linalg::inv] Arrays must type float32. Received array "
+        << "with type " << a.dtype() << ".";
+    throw std::invalid_argument(msg.str());
+  }
+  if (a.ndim() < 2) {
+    std::ostringstream msg;
+    msg << "[linalg::inv] Arrays must have >= 2 dimensions. Received array "
+           "with "
+        << a.ndim() << " dimensions.";
+    throw std::invalid_argument(msg.str());
+  }
+  if (a.shape(-1) != a.shape(-2)) {
+    throw std::invalid_argument(
+        "[linalg::inv] Inverses are only defined for square matrices.");
+  }
+
+  return array(
+      a.shape(), a.dtype(), std::make_shared<Inverse>(to_stream(s)), {a});
 }
 
 } // namespace mlx::core::linalg

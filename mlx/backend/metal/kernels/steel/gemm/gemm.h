@@ -4,6 +4,7 @@
 
 #include "mlx/backend/metal/kernels/steel/gemm/loader.h"
 #include "mlx/backend/metal/kernels/steel/gemm/mma.h"
+#include "mlx/backend/metal/kernels/steel/gemm/params.h"
 #include "mlx/backend/metal/kernels/steel/gemm/transforms.h"
 #include "mlx/backend/metal/kernels/steel/utils.h"
 
@@ -89,20 +90,9 @@ struct GEMMKernel {
     // Appease the compiler
     (void)l;
 
-    thread bool mask_A[loader_a_t::n_rows][loader_a_t::vec_size];
-    thread bool mask_B[loader_b_t::n_rows][loader_b_t::vec_size];
+    short2 tile_dims_A = transpose_a ? short2(tgp_bm, BK) : short2(BK, tgp_bm);
 
-    if (!M_aligned) {
-      short2 tile_dims_A =
-          transpose_a ? short2(tgp_bm, BK) : short2(BK, tgp_bm);
-      loader_a.set_mask(tile_dims_A, mask_A);
-    }
-
-    if (!N_aligned) {
-      short2 tile_dims_B =
-          transpose_b ? short2(BK, tgp_bn) : short2(tgp_bn, BK);
-      loader_b.set_mask(tile_dims_B, mask_B);
-    }
+    short2 tile_dims_B = transpose_b ? short2(BK, tgp_bn) : short2(tgp_bn, BK);
 
     for (int k = 0; k < gemm_k_iterations; k++) {
       threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -110,13 +100,13 @@ struct GEMMKernel {
       if (M_aligned) {
         loader_a.load_unsafe();
       } else {
-        loader_a.load_safe(mask_A);
+        loader_a.load_safe(tile_dims_A);
       }
 
       if (N_aligned) {
         loader_b.load_unsafe();
       } else {
-        loader_b.load_safe(mask_B);
+        loader_b.load_safe(tile_dims_B);
       }
 
       threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -137,11 +127,8 @@ struct GEMMKernel {
       short2 tile_dims_B_last =
           transpose_b ? short2(lbk, tgp_bn) : short2(tgp_bn, lbk);
 
-      loader_a.set_mask(tile_dims_A_last, mask_A);
-      loader_b.set_mask(tile_dims_B_last, mask_B);
-
-      loader_a.load_safe(mask_A);
-      loader_b.load_safe(mask_B);
+      loader_a.load_safe(tile_dims_A_last);
+      loader_b.load_safe(tile_dims_B_last);
 
       threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -153,7 +140,7 @@ struct GEMMKernel {
   static METAL_FUNC void run(
       const device T* A [[buffer(0)]],
       const device T* B [[buffer(1)]],
-      device U* C [[buffer(2)]],
+      device U* D [[buffer(2)]],
       const constant GEMMParams* params [[buffer(3)]],
       threadgroup T* As [[threadgroup(0)]],
       threadgroup T* Bs [[threadgroup(1)]],
@@ -180,7 +167,7 @@ struct GEMMKernel {
 
     A += transpose_a ? c_row : c_row * params->lda;
     B += transpose_b ? c_col * params->ldb : c_col;
-    C += c_row * params->ldc + c_col;
+    D += c_row * params->ldd + c_col;
 
     // Prepare threadgroup loading operations
     thread loader_a_t loader_a(A, params->lda, As, simd_group_id, simd_lane_id);
@@ -218,14 +205,8 @@ struct GEMMKernel {
         short2 tile_dims_A = transpose_a ? short2(BM, lbk) : short2(lbk, BM);
         short2 tile_dims_B = transpose_b ? short2(lbk, BN) : short2(BN, lbk);
 
-        thread bool mask_A[loader_a_t::n_rows][loader_a_t::vec_size];
-        thread bool mask_B[loader_b_t::n_rows][loader_b_t::vec_size];
-
-        loader_a.set_mask(tile_dims_A, mask_A);
-        loader_b.set_mask(tile_dims_B, mask_B);
-
-        loader_a.load_safe(mask_A);
-        loader_b.load_safe(mask_B);
+        loader_a.load_safe(tile_dims_A);
+        loader_b.load_safe(tile_dims_B);
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -233,7 +214,7 @@ struct GEMMKernel {
       }
 
       // Store results to device memory
-      mma_op.store_result(C, params->ldc);
+      mma_op.store_result(D, params->ldd);
       return;
 
     }
@@ -256,7 +237,7 @@ struct GEMMKernel {
             tgp_bn,
             leftover_bk);
 
-        mma_op.store_result(C, params->ldc);
+        mma_op.store_result(D, params->ldd);
         return;
 
       } else if (tgp_bn == BN) {
@@ -271,7 +252,7 @@ struct GEMMKernel {
             tgp_bn,
             leftover_bk);
 
-        mma_op.store_result_safe(C, params->ldc, short2(tgp_bn, tgp_bm));
+        mma_op.store_result_safe(D, params->ldd, short2(tgp_bn, tgp_bm));
         return;
 
       } else if (tgp_bm == BM) {
@@ -286,7 +267,7 @@ struct GEMMKernel {
             tgp_bn,
             leftover_bk);
 
-        mma_op.store_result_safe(C, params->ldc, short2(tgp_bn, tgp_bm));
+        mma_op.store_result_safe(D, params->ldd, short2(tgp_bn, tgp_bm));
         return;
 
       } else {
@@ -301,7 +282,7 @@ struct GEMMKernel {
             tgp_bn,
             leftover_bk);
 
-        mma_op.store_result_safe(C, params->ldc, short2(tgp_bn, tgp_bm));
+        mma_op.store_result_safe(D, params->ldd, short2(tgp_bn, tgp_bm));
         return;
       }
     }

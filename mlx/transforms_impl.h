@@ -1,5 +1,7 @@
 // Copyright © 2023-2024 Apple Inc.
 
+#pragma once
+
 namespace mlx::core::detail {
 
 std::pair<std::vector<array>, std::vector<array>> vmap_trace(
@@ -18,7 +20,9 @@ std::vector<array> vmap_replace(
 // idea.
 std::function<std::vector<array>(const std::vector<array>&)> compile(
     const std::function<std::vector<array>(const std::vector<array>&)>& fun,
-    size_t fun_id);
+    size_t fun_id,
+    bool shapeless = false,
+    std::vector<uint64_t> constants = {});
 
 // Erase cached compile functions
 void compile_erase(size_t fun_id);

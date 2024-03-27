@@ -15,32 +15,32 @@ option(MLX_BUILD_EXAMPLES "Build examples for mlx" ON)
 option(MLX_BUILD_BENCHMARKS "Build benchmarks for mlx" OFF)
 option(MLX_BUILD_PYTHON_BINDINGS "Build python bindings for mlx" OFF)
 option(MLX_BUILD_METAL "Build metal backend" ON)
+option(MLX_ENABLE_X64_MAC "Enable building for x64 macOS" OFF)
 option(BUILD_SHARED_LIBS "Build mlx as a shared library" OFF)
 
 if(NOT MLX_VERSION)
-  set(MLX_VERSION 0.0.11)
+  set(MLX_VERSION 0.8.1)
 endif()
 
 # --------------------- Processor tests -------------------------
 
-message(STATUS "Building MLX for ${CMAKE_HOST_SYSTEM_PROCESSOR} processor on ${CMAKE_SYSTEM_NAME}")
+message(STATUS "Building MLX for ${CMAKE_SYSTEM_PROCESSOR} processor on ${CMAKE_SYSTEM_NAME}")
 
 set(MLX_BUILD_ARM OFF)
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-
-  if (${CMAKE_HOST_SYSTEM_PROCESSOR} MATCHES "x86_64" AND ${CMAKE_HOST_APPLE})
-    message(FATAL_ERROR
-      "Building for x86_64 on macOS is not supported."
-      " If you are on an Apple silicon system, check the build"
-      " documentation for possible fixes: "
-      "https://ml-explore.github.io/mlx/build/html/install.html#build-from-source")
-  elseif (${CMAKE_HOST_SYSTEM_PROCESSOR} MATCHES "x86_64")
-    message(WARNING
-      "Building for x86_64 on macOS is not supported."
-      " If you are on an Apple silicon system, "
-      " make sure you are building for arm64.")
-  elseif(${CMAKE_HOST_SYSTEM_PROCESSOR} MATCHES "arm64")
+  if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "x86_64")
+    if(NOT MLX_ENABLE_X64_MAC)
+      message(FATAL_ERROR
+        "Building for x86_64 on macOS is not supported."
+        " If you are on an Apple silicon system, check the build"
+        " documentation for possible fixes: "
+        "https://ml-explore.github.io/mlx/build/html/install.html#build-from-source")
+    else()
+      message(WARNING "Building for x86_64 arch is not officially supported.")
+    endif()
+    set(MLX_BUILD_METAL OFF)
+  elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "arm64")
     set(MLX_BUILD_ARM ON)
   endif()
 
@@ -67,8 +67,6 @@ if (MLX_BUILD_METAL AND NOT METAL_LIB)
   set(MLX_BUILD_METAL OFF)
 elseif (MLX_BUILD_METAL)
   message(STATUS "Building METAL sources")
-  add_compile_definitions(_METAL_)
-
   # Throw an error if xcrun not found
   execute_process(COMMAND zsh "-c" "/usr/bin/xcrun -sdk macosx --show-sdk-version"
                   OUTPUT_VARIABLE MACOS_VERSION
@@ -80,10 +78,8 @@ elseif (MLX_BUILD_METAL)
     set(METAL_CPP_URL https://developer.apple.com/metal/cpp/files/metal-cpp_macOS14.2_iOS17.2.zip)
   elseif (${MACOS_VERSION} GREATER_EQUAL 14.0)
     set(METAL_CPP_URL https://developer.apple.com/metal/cpp/files/metal-cpp_macOS14_iOS17-beta.zip)
-  elseif (${MACOS_VERSION} GREATER_EQUAL 13.3)
-    set(METAL_CPP_URL https://developer.apple.com/metal/cpp/files/metal-cpp_macOS13.3_iOS16.4.zip)
   else()
-    message(FATAL_ERROR "MLX requires macOS >= 13.4 to be built with MLX_BUILD_METAL=ON" )
+    message(FATAL_ERROR "MLX requires macOS SDK >= 14.0 to be built with MLX_BUILD_METAL=ON" )
   endif()
 
   FetchContent_Declare(
@@ -113,7 +109,27 @@ if (MLX_BUILD_ARM AND ACCELERATE_LIBRARY)
 else()
   message(STATUS "Accelerate or arm neon not found, using default backend.")
   set(MLX_BUILD_ACCELERATE OFF)
-  #set(BLA_VENDOR Generic)
+  if(${CMAKE_HOST_APPLE})
+    # The blas shipped in macOS SDK is not supported, search homebrew for
+    # openblas instead.
+    set(BLA_VENDOR OpenBLAS)
+    set(LAPACK_ROOT "${LAPACK_ROOT};$ENV{LAPACK_ROOT};/usr/local/opt/openblas")
+  endif()
+  # Search and link with lapack.
+  find_package(LAPACK REQUIRED)
+  if (NOT LAPACK_FOUND)
+    message(FATAL_ERROR "Must have LAPACK installed")
+  endif()
+  find_path(LAPACK_INCLUDE_DIRS lapacke.h
+    /usr/include
+    /usr/local/include
+    /usr/local/opt/openblas/include)
+  message(STATUS "Lapack lib " ${LAPACK_LIBRARIES})
+  message(STATUS "Lapack include " ${LAPACK_INCLUDE_DIRS})
+  target_include_directories(mlx PRIVATE ${LAPACK_INCLUDE_DIRS})
+  target_link_libraries(mlx ${LAPACK_LIBRARIES})
+  # List blas after lapack otherwise we may accidentally incldue an old version
+  # of lapack.h from the include dirs of blas.
   find_package(BLAS REQUIRED)
   if (NOT BLAS_FOUND)
     message(FATAL_ERROR "Must have BLAS installed")
@@ -123,21 +139,10 @@ else()
     /usr/include
     /usr/local/include
     $ENV{BLAS_HOME}/include)
-  message(STATUS "Blas lib" ${BLAS_LIBRARIES})
-  message(STATUS "Blas incclude" ${BLAS_INCLUDE_DIRS})
+  message(STATUS "Blas lib " ${BLAS_LIBRARIES})
+  message(STATUS "Blas include " ${BLAS_INCLUDE_DIRS})
   target_include_directories(mlx PRIVATE ${BLAS_INCLUDE_DIRS})
   target_link_libraries(mlx ${BLAS_LIBRARIES})
-  find_package(LAPACK REQUIRED)
-  if (NOT LAPACK_FOUND)
-      message(FATAL_ERROR "Must have LAPACK installed")
-  endif()
-  find_path(LAPACK_INCLUDE_DIRS lapacke.h
-    /usr/include
-    /usr/local/include)
-  message(STATUS "Lapack lib" ${LAPACK_LIBRARIES})
-  message(STATUS "Lapack include " ${LAPACK_INCLUDE_DIRS})
-  target_include_directories(mlx PRIVATE ${LAPACK_INCLUDE_DIRS})
-  target_link_libraries(mlx ${LAPACK_LIBRARIES})
 endif()
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/mlx)
@@ -151,8 +156,12 @@ target_include_directories(
 
 if (MLX_BUILD_PYTHON_BINDINGS)
   message(STATUS "Building Python bindings.")
-  find_package(Python COMPONENTS Interpreter Development)
-  find_package(pybind11 CONFIG REQUIRED)
+  find_package(Python 3.8 COMPONENTS Interpreter Development.Module REQUIRED)
+  execute_process(
+    COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
+    OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE NB_DIR)
+  list(APPEND CMAKE_PREFIX_PATH "${NB_DIR}")
+  find_package(nanobind CONFIG REQUIRED)
   add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/python/src)
 endif()
 

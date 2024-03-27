@@ -1,4 +1,4 @@
-// Copyright © 2023 Apple Inc.
+// Copyright © 2023-2024 Apple Inc.
 
 #include <cassert>
 #include <cmath>
@@ -35,6 +35,10 @@ DEFAULT(Broadcast)
 DEFAULT(Ceil)
 DEFAULT(Concatenate)
 DEFAULT(Copy)
+DEFAULT_MULTI(CustomVJP)
+DEFAULT_MULTI(Depends)
+DEFAULT_MULTI(DivMod)
+DEFAULT(NumberOfElements)
 DEFAULT(Equal)
 DEFAULT(Erf)
 DEFAULT(ErfInv)
@@ -55,19 +59,23 @@ DEFAULT(Minimum)
 DEFAULT(NotEqual)
 DEFAULT(Pad)
 DEFAULT(Partition)
+DEFAULT_MULTI(QRF)
 DEFAULT(RandomBits)
 DEFAULT(Reshape)
+DEFAULT(Remainder)
 DEFAULT(Round)
 DEFAULT(Scatter)
+DEFAULT(Select)
 DEFAULT(Sigmoid)
 DEFAULT(Sign)
 DEFAULT(Slice)
+DEFAULT(SliceUpdate)
 DEFAULT_MULTI(Split)
 DEFAULT(Sort)
 DEFAULT(StopGradient)
+DEFAULT_MULTI(SVD)
 DEFAULT(Transpose)
-DEFAULT_MULTI(DivMod)
-DEFAULT_MULTI(QRF)
+DEFAULT(Inverse)
 
 void Abs::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
@@ -78,11 +86,8 @@ void Abs::eval_cpu(const std::vector<array>& inputs, array& out) {
   } else if (in.dtype() == int32 && in.flags().contiguous) {
     set_unary_output_data(in, out);
     vDSP_vabsi(in.data<int>(), 1, out.data<int>(), 1, in.data_size());
-  } else if (is_unsigned(in.dtype())) {
-    // No-op for unsigned types
-    out.copy_shared_buffer(in);
   } else {
-    unary(in, out, AbsOp());
+    eval(inputs, out);
   }
 }
 
@@ -289,45 +294,6 @@ void Divide::eval_cpu(const std::vector<array>& inputs, array& out) {
   }
 }
 
-// TODO: Avoid code duplication with the common backend.
-struct RemainderFn {
-  template <typename T>
-  std::enable_if_t<!std::is_integral_v<T>, T> operator()(
-      T numerator,
-      T denominator) {
-    return std::fmod(numerator, denominator);
-  }
-
-  template <typename T>
-  std::enable_if_t<std::is_integral_v<T>, T> operator()(
-      T numerator,
-      T denominator) {
-    return numerator % denominator;
-  }
-};
-
-void Remainder::eval_cpu(const std::vector<array>& inputs, array& out) {
-  assert(inputs.size() == 2);
-  auto& a = inputs[0];
-  auto& b = inputs[1];
-
-  if (a.dtype() == float32) {
-    binary(
-        a,
-        b,
-        out,
-        RemainderFn{},
-        UseDefaultBinaryOp(),
-        UseDefaultBinaryOp(),
-        [](const auto* a, const auto* b, auto* o, auto n) {
-          int num_el = n;
-          vvremainderf((float*)o, (const float*)a, (const float*)b, &num_el);
-        });
-  } else {
-    binary(a, b, out, RemainderFn{});
-  }
-}
-
 void Exp::eval_cpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
@@ -335,7 +301,7 @@ void Exp::eval_cpu(const std::vector<array>& inputs, array& out) {
     set_unary_output_data(in, out);
     auto size = in.data_size();
     vvexpf(out.data<float>(), in.data<float>(), reinterpret_cast<int*>(&size));
-  } else if (is_floating_point(out.dtype())) {
+  } else if (issubdtype(out.dtype(), inexact)) {
     unary_fp(in, out, [](auto x) { return std::exp(x); });
   } else {
     throw std::invalid_argument(
@@ -389,7 +355,7 @@ void Log1p::eval_cpu(const std::vector<array>& inputs, array& out) {
     auto size = in.data_size();
     vvlog1pf(
         out.data<float>(), in.data<float>(), reinterpret_cast<int*>(&size));
-  } else if (is_floating_point(out.dtype())) {
+  } else if (issubdtype(out.dtype(), inexact)) {
     unary_fp(in, out, [](auto x) { return std::log1p(x); });
   } else {
     throw std::invalid_argument(

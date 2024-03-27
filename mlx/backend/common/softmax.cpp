@@ -53,7 +53,12 @@ void Softmax::eval(const std::vector<array>& inputs, array& out) {
 
   // Make sure that the last dimension is contiguous
   auto check_input = [](array x) {
-    if (x.strides().back() == 1) {
+    bool no_copy = x.strides()[x.ndim() - 1] == 1;
+    if (x.ndim() > 1) {
+      auto s = x.strides()[x.ndim() - 2];
+      no_copy &= (s == 0 || s == x.shape().back());
+    }
+    if (no_copy) {
       return x;
     } else {
       array x_copy(x.shape(), x.dtype(), nullptr, {});
@@ -62,11 +67,15 @@ void Softmax::eval(const std::vector<array>& inputs, array& out) {
     }
   };
   array in = check_input(std::move(inputs[0]));
-  out.set_data(
-      allocator::malloc_or_wait(in.data_size() * in.itemsize()),
-      in.data_size(),
-      in.strides(),
-      in.flags());
+  if (in.is_donatable()) {
+    out.copy_shared_buffer(in);
+  } else {
+    out.set_data(
+        allocator::malloc_or_wait(in.data_size() * in.itemsize()),
+        in.data_size(),
+        in.strides(),
+        in.flags());
+  }
 
   switch (in.dtype()) {
     case bool_:

@@ -1,4 +1,4 @@
-// Copyright © 2023 Apple Inc.
+// Copyright © 2023-2024 Apple Inc.
 
 #include <functional>
 
@@ -11,16 +11,6 @@
 namespace mlx::core {
 
 namespace {
-
-std::pair<size_t, std::vector<size_t>> cum_prod(const std::vector<int>& shape) {
-  std::vector<size_t> strides(shape.size());
-  size_t cum_prod = 1;
-  for (int i = shape.size() - 1; i >= 0; --i) {
-    strides[i] = cum_prod;
-    cum_prod *= shape[i];
-  }
-  return {cum_prod, strides};
-}
 
 /** Return true if we are currently performing a function transformation in
  * order to keep the graph when evaluating tracer arrays. */
@@ -37,21 +27,10 @@ array::array(const std::complex<float>& val, Dtype dtype /* = complex64 */)
 }
 
 array::array(
-    const std::vector<int>& shape,
-    Dtype dtype,
-    std::shared_ptr<Primitive> primitive,
-    const std::vector<array>& inputs)
-    : array_desc_(std::make_shared<ArrayDesc>(
-          shape,
-          dtype,
-          std::move(primitive),
-          inputs)) {}
-
-array::array(
     std::vector<int> shape,
     Dtype dtype,
     std::shared_ptr<Primitive> primitive,
-    std::vector<array>&& inputs)
+    std::vector<array> inputs)
     : array_desc_(std::make_shared<ArrayDesc>(
           std::move(shape),
           dtype,
@@ -59,15 +38,16 @@ array::array(
           std::move(inputs))) {}
 
 std::vector<array> array::make_arrays(
-    const std::vector<std::vector<int>>& shapes,
+    std::vector<std::vector<int>> shapes,
     const std::vector<Dtype>& dtypes,
-    std::shared_ptr<Primitive> primitive,
+    const std::shared_ptr<Primitive>& primitive,
     const std::vector<array>& inputs) {
   std::vector<array> outputs;
-  for (int i = 0; i < shapes.size(); ++i) {
-    outputs.push_back(array(shapes[i], dtypes[i], primitive, inputs));
+  for (size_t i = 0; i < shapes.size(); ++i) {
+    outputs.emplace_back(std::move(shapes[i]), dtypes[i], primitive, inputs);
   }
-  for (int i = 0; i < outputs.size(); ++i) {
+  // For each node in |outputs|, its siblings are the other nodes.
+  for (size_t i = 0; i < outputs.size(); ++i) {
     auto siblings = outputs;
     siblings.erase(siblings.begin() + i);
     outputs[i].set_siblings(std::move(siblings), i);
@@ -82,13 +62,20 @@ array::array(std::initializer_list<float> data)
   init(data.begin());
 }
 
+array::array(std::initializer_list<int> data, Dtype dtype)
+    : array_desc_(std::make_shared<ArrayDesc>(
+          std::vector<int>{static_cast<int>(data.size())},
+          dtype)) {
+  init(data.begin());
+}
+
 /* Build an array from a shared buffer */
 array::array(
     allocator::Buffer data,
-    const std::vector<int>& shape,
+    std::vector<int> shape,
     Dtype dtype,
     deleter_t deleter)
-    : array_desc_(std::make_shared<ArrayDesc>(shape, dtype)) {
+    : array_desc_(std::make_shared<ArrayDesc>(std::move(shape), dtype)) {
   set_data(data, deleter);
 }
 
@@ -155,47 +142,52 @@ void array::copy_shared_buffer(const array& other) {
   copy_shared_buffer(other, other.strides(), other.flags(), other.data_size());
 }
 
-void array::move_shared_buffer(array other) {
+void array::move_shared_buffer(
+    array other,
+    const std::vector<size_t>& strides,
+    Flags flags,
+    size_t data_size,
+    size_t offset /* = 0 */) {
   array_desc_->data = std::move(other.array_desc_->data);
-  array_desc_->strides = other.strides();
-  array_desc_->flags = other.flags();
-  array_desc_->data_size = other.data_size();
-  array_desc_->data_ptr = other.array_desc_->data_ptr;
+  array_desc_->strides = strides;
+  array_desc_->flags = flags;
+  array_desc_->data_size = data_size;
+  auto char_offset = sizeof(char) * itemsize() * offset;
+  array_desc_->data_ptr = static_cast<void*>(
+      static_cast<char*>(other.array_desc_->data_ptr) + char_offset);
 }
 
-array::ArrayDesc::ArrayDesc(const std::vector<int>& shape, Dtype dtype)
-    : shape(shape), dtype(dtype) {
-  std::tie(size, strides) = cum_prod(shape);
+void array::move_shared_buffer(array other) {
+  move_shared_buffer(other, other.strides(), other.flags(), other.data_size());
 }
 
-array::ArrayDesc::ArrayDesc(
-    const std::vector<int>& shape,
-    Dtype dtype,
-    std::shared_ptr<Primitive> primitive,
-    const std::vector<array>& inputs)
-    : shape(shape),
-      dtype(dtype),
-      primitive(std::move(primitive)),
-      inputs(inputs) {
-  std::tie(size, strides) = cum_prod(this->shape);
+void array::ArrayDesc::init() {
+  strides.resize(shape.size());
+  size = 1;
+  for (int i = shape.size() - 1; i >= 0; --i) {
+    strides[i] = size;
+    size *= shape[i];
+  }
   for (auto& in : inputs) {
     is_tracer |= in.is_tracer();
   }
 }
 
+array::ArrayDesc::ArrayDesc(std::vector<int> shape, Dtype dtype)
+    : shape(std::move(shape)), dtype(dtype) {
+  init();
+}
+
 array::ArrayDesc::ArrayDesc(
-    std::vector<int>&& shape,
+    std::vector<int> shape,
     Dtype dtype,
     std::shared_ptr<Primitive> primitive,
-    std::vector<array>&& inputs)
+    std::vector<array> inputs)
     : shape(std::move(shape)),
       dtype(dtype),
       primitive(std::move(primitive)),
       inputs(std::move(inputs)) {
-  std::tie(size, strides) = cum_prod(this->shape);
-  for (auto& in : inputs) {
-    is_tracer |= in.is_tracer();
-  }
+  init();
 }
 
 array::ArrayIterator::ArrayIterator(const array& arr, int idx)

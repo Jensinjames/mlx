@@ -66,7 +66,7 @@ array bits(
   return array(
       shape,
       get_dtype(),
-      std::make_unique<RandomBits>(to_stream(s), shape, width),
+      std::make_shared<RandomBits>(to_stream(s), shape, width),
       {key});
 }
 
@@ -90,6 +90,16 @@ T below_one() {
   return f;
 }
 
+// Get the next representable value above -1.0 for half precision
+// floating point types (fp16, bf16)
+template <typename T>
+T above_minus_one() {
+  T f = T(-1.0);
+  uint16_t* m = (uint16_t*)&f;
+  *m -= 1;
+  return f;
+}
+
 array uniform(
     const array& low,
     const array& high,
@@ -97,7 +107,7 @@ array uniform(
     Dtype dtype /* = float32 */,
     const std::optional<array>& key /*= nullopt */,
     StreamOrDevice s /* = {} */) {
-  if (!is_floating_point(dtype) && !is_complex(dtype)) {
+  if (!issubdtype(dtype, floating)) {
     throw std::invalid_argument(
         "Can only generate uniform numbers with real floating point type.");
   }
@@ -153,14 +163,33 @@ array uniform(
 array normal(
     const std::vector<int>& shape,
     Dtype dtype,
+    const float loc /* = 0.0 */,
+    const float scale /* = 1.0 */,
     const std::optional<array>& key /*= nullopt */,
     StreamOrDevice s /* = {} */) {
   auto stream = to_stream(s);
-  auto low = array(std::nextafter(-1.0f, 0.0f), dtype);
+  auto get_low = [&dtype]() {
+    switch (dtype) {
+      case float16:
+        return array(above_minus_one<float16_t>(), dtype);
+      case bfloat16:
+        return array(above_minus_one<bfloat16_t>(), dtype);
+      default:
+        return array(std::nextafter(-1.0f, 0.0f), dtype);
+    }
+  };
+  auto low = get_low();
   auto high = array(1.0f, dtype);
   auto samples = uniform(low, high, shape, dtype, key, stream);
-  return multiply(
-      array(std::sqrt(2.0), dtype), erfinv(samples, stream), stream);
+  samples =
+      multiply(array(std::sqrt(2.0), dtype), erfinv(samples, stream), stream);
+  if (scale != 1.0) {
+    samples = multiply(array(scale, dtype), samples, stream);
+  }
+  if (loc != 0.0) {
+    samples = add(array(loc, dtype), samples, stream);
+  }
+  return samples;
 }
 
 array randint(
@@ -170,7 +199,7 @@ array randint(
     Dtype dtype /* = int32 */,
     const std::optional<array>& key /*= nullopt */,
     StreamOrDevice s /* = {} */) {
-  if (!is_integral(dtype)) {
+  if (issubdtype(dtype, inexact)) {
     throw std::invalid_argument(
         "[randint] randint only accepts integer dtypes and bool.");
   }
@@ -183,7 +212,7 @@ array bernoulli(
     const std::vector<int>& shape,
     const std::optional<array>& key /*= nullopt */,
     StreamOrDevice s /* = {} */) {
-  if (!is_floating_point(p.dtype())) {
+  if (!issubdtype(p.dtype(), floating)) {
     throw std::invalid_argument(
         "[bernoulli] bernoulli probability `p` must be a float type.");
   }
@@ -219,7 +248,7 @@ array truncated_normal(
   // Same as
   // https://jax.readthedocs.io/en/latest/_modules/jax/_src/random.html#truncated_normal
 
-  if (!is_floating_point(dtype)) {
+  if (!issubdtype(dtype, floating)) {
     throw std::invalid_argument(
         "[trunc_normal] trunc_normal only accepts floating point dtypes.");
   }

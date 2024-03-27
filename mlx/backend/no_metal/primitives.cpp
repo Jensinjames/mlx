@@ -1,6 +1,7 @@
-// Copyright © 2023 Apple Inc.
+// Copyright © 2023-2024 Apple Inc.
 
 #include "mlx/primitives.h"
+#include "mlx/fast_primitives.h"
 
 #define NO_GPU_MULTI(func)                                             \
   void func::eval_gpu(                                                 \
@@ -32,12 +33,17 @@ NO_GPU(AsType)
 NO_GPU(AsStrided)
 NO_GPU(Broadcast)
 NO_GPU(Ceil)
+NO_GPU_MULTI(Compiled)
 NO_GPU(Concatenate)
 NO_GPU(Convolution)
 NO_GPU(Copy)
 NO_GPU(Cos)
 NO_GPU(Cosh)
+NO_GPU_MULTI(CustomVJP)
+NO_GPU_MULTI(Depends)
 NO_GPU(Divide)
+NO_GPU_MULTI(DivMod)
+NO_GPU(NumberOfElements)
 NO_GPU(Remainder)
 NO_GPU(Equal)
 NO_GPU(Erf)
@@ -67,6 +73,7 @@ NO_GPU(NotEqual)
 NO_GPU(Pad)
 NO_GPU(Partition)
 NO_GPU(Power)
+NO_GPU_MULTI(QRF)
 NO_GPU(QuantizedMatmul)
 NO_GPU(RandomBits)
 NO_GPU(Reduce)
@@ -74,11 +81,13 @@ NO_GPU(Reshape)
 NO_GPU(Round)
 NO_GPU(Scan)
 NO_GPU(Scatter)
+NO_GPU(Select)
 NO_GPU(Sigmoid)
 NO_GPU(Sign)
 NO_GPU(Sin)
 NO_GPU(Sinh)
 NO_GPU(Slice)
+NO_GPU(SliceUpdate)
 NO_GPU(Softmax)
 NO_GPU(Sort)
 NO_GPU_MULTI(Split)
@@ -86,9 +95,19 @@ NO_GPU(Square)
 NO_GPU(Sqrt)
 NO_GPU(StopGradient)
 NO_GPU(Subtract)
+NO_GPU_MULTI(SVD)
 NO_GPU(Tan)
 NO_GPU(Tanh)
 NO_GPU(Transpose)
-NO_GPU_MULTI(DivMod)
-NO_GPU_MULTI(QRF)
+NO_GPU(Inverse)
+
+namespace fast {
+NO_GPU_MULTI(LayerNorm)
+NO_GPU_MULTI(LayerNormVJP)
+NO_GPU_MULTI(RMSNorm)
+NO_GPU_MULTI(RMSNormVJP)
+NO_GPU_MULTI(RoPE)
+NO_GPU(ScaledDotProductAttention)
+} // namespace fast
+
 } // namespace mlx::core

@@ -17,6 +17,9 @@
 
 namespace mlx::core {
 
+// Maximum allowed graph depth for eval
+constexpr uint32_t max_graph_depth = 100'000;
+
 /* This class is only meant to be used in eval
  * for synchronizing with the main thread. */
 class Synchronizer : public Primitive {
@@ -34,7 +37,7 @@ class Synchronizer : public Primitive {
 // are currently under a function transformation.
 int detail::InTracing::tracing_counter{0};
 
-void eval(const std::vector<array>& outputs) {
+void eval(std::vector<array> outputs) {
   std::function<void(const array&)> recurse;
   std::queue<array> tape;
   std::unordered_set<std::uintptr_t> cache;
@@ -49,24 +52,36 @@ void eval(const std::vector<array>& outputs) {
     }
   }
 
-  auto synchronizer =
-      array({}, bool_, std::make_unique<Synchronizer>(stream), outputs);
+  auto synchronizer = array(
+      {}, bool_, std::make_shared<Synchronizer>(stream), std::move(outputs));
 
+  size_t depth_counter = 0;
   recurse = [&](const array& a) {
+    if (depth_counter > max_graph_depth) {
+      throw std::runtime_error(
+          "[eval] Graph depth exceeded maximum allowed limit."
+          " Try evaluating the graph more frequently.");
+    }
+
     auto id = a.id();
     if (cache.find(id) != cache.end()) {
       return;
     }
-    for (auto in : a.inputs()) {
+
+    // Recurse to the largest or smallest branch first.
+    depth_counter++;
+    for (auto& in : a.inputs()) {
       recurse(in);
-      // If one of the inputs is being computed on a different
-      // stream, we need to manage the dependency.
       if (!in.is_evaled()) {
+        // If the input is being computed on a different stream, we need to
+        // manage the dependency.
         if (a.primitive().stream() != in.primitive().stream()) {
-          deps.insert({in.primitive_id(), std::shared_future<void>{}});
+          deps.insert({in.output(0).id(), std::shared_future<void>{}});
         }
       }
     }
+    depth_counter--;
+
     cache.insert(id);
     for (auto& s : a.siblings()) {
       cache.insert(s.id());
@@ -81,8 +96,7 @@ void eval(const std::vector<array>& outputs) {
   };
 
   recurse(synchronizer);
-  uintptr_t synch_id = synchronizer.primitive_id();
-  deps.insert({synch_id, std::shared_future<void>{}});
+  deps.insert({synchronizer.id(), std::shared_future<void>{}});
 
   std::vector<std::shared_ptr<std::promise<void>>> ps;
   while (!tape.empty()) {
@@ -98,14 +112,13 @@ void eval(const std::vector<array>& outputs) {
     auto stream = arr.primitive().stream();
     std::vector<std::shared_future<void>> arr_deps;
     for (auto& in : arr.inputs()) {
-      // TODO that's a bug
-      if (auto it = deps.find(in.primitive_id()); it != deps.end()) {
+      if (auto it = deps.find(in.output(0).id()); it != deps.end()) {
         arr_deps.push_back(it->second);
       }
     }
-    std::shared_ptr<std::promise<void>> p{nullptr};
-    if (auto it = deps.find(arr.primitive_id()); it != deps.end()) {
-      p = std::make_unique<std::promise<void>>();
+    std::shared_ptr<std::promise<void>> p;
+    if (auto it = deps.find(arr.output(0).id()); it != deps.end()) {
+      p = std::make_shared<std::promise<void>>();
       ps.push_back(p);
       it->second = p->get_future().share();
     }
@@ -139,7 +152,7 @@ void eval(const std::vector<array>& outputs) {
     }
   }
 
-  deps[synch_id].wait();
+  deps[synchronizer.id()].wait();
 }
 
 std::pair<std::vector<array>, std::vector<array>> vjp(
@@ -512,9 +525,8 @@ std::pair<std::vector<array>, std::vector<array>> vmap_trace(
         "[vmap] The number of in axes must match the number of inputs.");
   }
 
-  // Run the function on placeholder inputs
-  // to get the original graph
-  std::vector<array> s_inputs;
+  // Some error checking and get the vmap axis size
+  size_t vmap_ax_size;
   for (int i = 0; i < inputs.size(); ++i) {
     if (in_axes[i] != -1) {
       if (inputs[i].ndim() == 0) {
@@ -527,7 +539,26 @@ std::pair<std::vector<array>, std::vector<array>> vmap_trace(
             << inputs[i].ndim() << " dimensions.";
         throw std::invalid_argument(msg.str());
       }
+      vmap_ax_size = inputs[i].shape(in_axes[i]);
+    }
+  }
+  // Check that all vmapped axes have the same size
+  for (int i = 0; i < inputs.size(); ++i) {
+    if (in_axes[i] != -1) {
+      if (size_t in_ax = inputs[i].shape(in_axes[i]); vmap_ax_size != in_ax) {
+        std::ostringstream msg;
+        msg << "[vmap] Inconsistent axis sizes: " << in_ax << " and "
+            << vmap_ax_size << ".";
+        throw std::invalid_argument(msg.str());
+      }
+    }
+  }
 
+  // Run the function on placeholder inputs
+  // to get the original graph
+  std::vector<array> s_inputs;
+  for (int i = 0; i < inputs.size(); ++i) {
+    if (in_axes[i] != -1) {
       std::vector<int> shape = inputs[i].shape();
       shape.erase(shape.begin() + in_axes[i]);
       array in(shape, inputs[i].dtype(), nullptr, {});
@@ -620,7 +651,9 @@ std::vector<array> vmap_replace(
         v_axes.push_back(-1);
       }
     }
+
     auto [v_outputs, v_out_axes] = a.primitive().vmap(v_inputs, v_axes);
+
     // For each primitive's outputs add its id, the vout id and the vax
     auto outputs = a.outputs();
     for (int i = 0; i < v_outputs.size(); ++i) {
@@ -711,6 +744,60 @@ std::function<array(const array&)> vmap(
       {in_axis},
       {out_axis});
   return [vfun](const array& a) { return vfun({a})[0]; };
+}
+
+std::function<std::vector<array>(const std::vector<array>&)> custom_vjp(
+    std::function<std::vector<array>(const std::vector<array>&)> fun,
+    std::function<std::vector<array>(
+        const std::vector<array>&,
+        const std::vector<array>&,
+        const std::vector<array>&)> fun_vjp) {
+  return [fun = std::move(fun),
+          fun_vjp = std::move(fun_vjp)](const std::vector<array>& args) {
+    // Compute the outputs
+    auto outputs = fun(args);
+    for (auto& out : outputs) {
+      out = stop_gradient(out);
+    }
+
+    // Prepare the inputs to the primitive
+    // We also add the outputs to the primitive so that it can "run" the forward
+    // pass.
+    std::vector<array> inputs = args;
+    inputs.insert(inputs.end(), outputs.begin(), outputs.end());
+
+    // Compute the stream. Maybe do it in a smarter way at some point in the
+    // future.
+    Stream s = (outputs[0].has_primitive()) ? outputs[0].primitive().stream()
+                                            : default_stream(default_device());
+
+    // Make the output info
+    std::vector<std::vector<int>> shapes;
+    std::vector<Dtype> dtypes;
+    for (const auto& out : outputs) {
+      shapes.emplace_back(out.shape());
+      dtypes.emplace_back(out.dtype());
+    }
+
+    return array::make_arrays(
+        std::move(shapes),
+        dtypes,
+        std::make_shared<CustomVJP>(to_stream(s), fun_vjp),
+        inputs);
+  };
+}
+
+std::function<std::vector<array>(const std::vector<array>&)> checkpoint(
+    std::function<std::vector<array>(const std::vector<array>&)> fun) {
+  auto vjp_fun = [fun](
+                     const std::vector<array>& primals,
+                     const std::vector<array>& cotangents,
+                     const std::vector<array>& outputs) -> std::vector<array> {
+    auto [__, vjps] = vjp(fun, depends(primals, outputs), cotangents);
+    return vjps;
+  };
+
+  return custom_vjp(fun, vjp_fun);
 }
 
 } // namespace mlx::core

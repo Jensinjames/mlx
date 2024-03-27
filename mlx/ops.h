@@ -3,17 +3,13 @@
 #pragma once
 
 #include <optional>
-#include <variant>
 
 #include "mlx/array.h"
 #include "mlx/device.h"
 #include "mlx/stream.h"
+#include "mlx/utils.h"
 
 namespace mlx::core {
-
-using StreamOrDevice = std::variant<std::monostate, Stream, Device>;
-
-Stream to_stream(StreamOrDevice s);
 
 /** Creation operations */
 
@@ -162,9 +158,7 @@ array expand_dims(
     StreamOrDevice s = {});
 
 /** Add a singleton dimension at the given axis. */
-inline array expand_dims(const array& a, int axis, StreamOrDevice s = {}) {
-  return expand_dims(a, std::vector<int>{axis}, s);
-}
+array expand_dims(const array& a, int axis, StreamOrDevice s = {});
 
 /** Slice an array. */
 array slice(
@@ -179,6 +173,23 @@ array slice(
     const array& a,
     const std::vector<int>& start,
     const std::vector<int>& stop,
+    StreamOrDevice s = {});
+
+/** Update a slice from the source array */
+array slice_update(
+    const array& src,
+    const array& update,
+    std::vector<int> start,
+    std::vector<int> stop,
+    std::vector<int> strides,
+    StreamOrDevice s = {});
+
+/** Update a slice from the source array with stride 1 in each dimension */
+array slice_update(
+    const array& src,
+    const array& update,
+    std::vector<int> start,
+    std::vector<int> stop,
     StreamOrDevice s = {});
 
 /** Split an array into sub-arrays along a given axis. */
@@ -1030,6 +1041,43 @@ array cummin(
 
 /** Convolution operations */
 
+/** General convolution with a filter */
+array conv_general(
+    array input,
+    array weight,
+    std::vector<int> stride = {},
+    std::vector<int> padding_lo = {},
+    std::vector<int> padding_hi = {},
+    std::vector<int> kernel_dilation = {},
+    std::vector<int> input_dilation = {},
+    int groups = 1,
+    bool flip = false,
+    StreamOrDevice s = {});
+
+/** General convolution with a filter */
+inline array conv_general(
+    const array& input,
+    const array& weight,
+    std::vector<int> stride = {},
+    std::vector<int> padding = {},
+    std::vector<int> kernel_dilation = {},
+    std::vector<int> input_dilation = {},
+    int groups = 1,
+    bool flip = false,
+    StreamOrDevice s = {}) {
+  return conv_general(
+      /* const array& input = */ input,
+      /* const array& weight = */ weight,
+      /* std::vector<int> stride = */ stride,
+      /* std::vector<int> padding_lo = */ padding,
+      /* std::vector<int> padding_hi = */ padding,
+      /* std::vector<int> kernel_dilation = */ kernel_dilation,
+      /* std::vector<int> input_dilation = */ input_dilation,
+      /* int groups = */ groups,
+      /* bool flip = */ flip,
+      /* StreamOrDevice s = */ s);
+}
+
 /** 1D convolution with a filter */
 array conv1d(
     const array& input,
@@ -1077,17 +1125,18 @@ array dequantize(
     int bits = 4,
     StreamOrDevice s = {});
 
-/** TensorDot returns a contraction of a and b over multiple dimensions. */
+/** Returns a contraction of a and b over multiple dimensions. */
 array tensordot(
     const array& a,
     const array& b,
-    const int dims = 2,
+    const int axis = 2,
     StreamOrDevice s = {});
 
 array tensordot(
     const array& a,
     const array& b,
-    const std::pair<std::vector<int>, std::vector<int>>& dims,
+    const std::vector<int>& axes_a,
+    const std::vector<int>& axes_b,
     StreamOrDevice s = {});
 
 /** Compute the outer product of two vectors. */
@@ -1103,6 +1152,51 @@ array addmm(
     array b,
     const float& alpha = 1.f,
     const float& beta = 1.f,
+    StreamOrDevice s = {});
+
+/** Extract a diagonal or construct a diagonal array */
+array diagonal(
+    const array& a,
+    int offset = 0,
+    int axis1 = 0,
+    int axis2 = 1,
+    StreamOrDevice s = {});
+
+/** Extract diagonal from a 2d array or create a diagonal matrix. */
+array diag(const array& a, int k = 0, StreamOrDevice s = {});
+
+/**
+ * Implements the identity function but allows injecting dependencies to other
+ * arrays. This ensures that these other arrays will have been computed
+ * when the outputs of this function are computed.
+ */
+std::vector<array> depends(
+    const std::vector<array>& inputs,
+    const std::vector<array>& dependencies);
+
+/** convert an array to an atleast ndim array */
+array atleast_1d(const array& a, StreamOrDevice s = {});
+std::vector<array> atleast_1d(
+    const std::vector<array>& a,
+    StreamOrDevice s = {});
+array atleast_2d(const array& a, StreamOrDevice s = {});
+std::vector<array> atleast_2d(
+    const std::vector<array>& a,
+    StreamOrDevice s = {});
+array atleast_3d(const array& a, StreamOrDevice s = {});
+std::vector<array> atleast_3d(
+    const std::vector<array>& a,
+    StreamOrDevice s = {});
+
+/**
+ * Extract the number of elements along some axes as a scalar array. Used to
+ * allow shape dependent shapeless compilation (pun intended).
+ */
+array number_of_elements(
+    const array& a,
+    std::vector<int> axes,
+    bool inverted,
+    Dtype dtype = int32,
     StreamOrDevice s = {});
 
 } // namespace mlx::core

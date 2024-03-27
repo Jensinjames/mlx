@@ -1,8 +1,10 @@
-# Copyright © 2023 Apple Inc.
+# Copyright © 2023-2024 Apple Inc.
 
 import operator
+import pickle
 import unittest
 import weakref
+from copy import copy, deepcopy
 from itertools import permutations
 
 import mlx.core as mx
@@ -94,7 +96,7 @@ class TestArray(mlx_tests.MLXTestCase):
         self.assertEqual(x.ndim, 0)
         self.assertEqual(x.itemsize, 4)
         self.assertEqual(x.nbytes, 4)
-        self.assertEqual(x.shape, [])
+        self.assertEqual(x.shape, ())
         self.assertEqual(x.dtype, mx.int32)
         self.assertEqual(x.item(), 1)
         self.assertTrue(isinstance(x.item(), int))
@@ -116,7 +118,7 @@ class TestArray(mlx_tests.MLXTestCase):
         x = mx.array(1.0)
         self.assertEqual(x.size, 1)
         self.assertEqual(x.ndim, 0)
-        self.assertEqual(x.shape, [])
+        self.assertEqual(x.shape, ())
         self.assertEqual(x.dtype, mx.float32)
         self.assertEqual(x.item(), 1.0)
         self.assertTrue(isinstance(x.item(), float))
@@ -124,14 +126,14 @@ class TestArray(mlx_tests.MLXTestCase):
         x = mx.array(False)
         self.assertEqual(x.size, 1)
         self.assertEqual(x.ndim, 0)
-        self.assertEqual(x.shape, [])
+        self.assertEqual(x.shape, ())
         self.assertEqual(x.dtype, mx.bool_)
         self.assertEqual(x.item(), False)
         self.assertTrue(isinstance(x.item(), bool))
 
         x = mx.array(complex(1, 1))
         self.assertEqual(x.ndim, 0)
-        self.assertEqual(x.shape, [])
+        self.assertEqual(x.shape, ())
         self.assertEqual(x.dtype, mx.complex64)
         self.assertEqual(x.item(), complex(1, 1))
         self.assertTrue(isinstance(x.item(), complex))
@@ -139,7 +141,7 @@ class TestArray(mlx_tests.MLXTestCase):
         x = mx.array([True, False, True])
         self.assertEqual(x.dtype, mx.bool_)
         self.assertEqual(x.ndim, 1)
-        self.assertEqual(x.shape, [3])
+        self.assertEqual(x.shape, (3,))
         self.assertEqual(len(x), 3)
 
         x = mx.array([True, False, True], mx.float32)
@@ -148,7 +150,7 @@ class TestArray(mlx_tests.MLXTestCase):
         x = mx.array([0, 1, 2])
         self.assertEqual(x.dtype, mx.int32)
         self.assertEqual(x.ndim, 1)
-        self.assertEqual(x.shape, [3])
+        self.assertEqual(x.shape, (3,))
 
         x = mx.array([0, 1, 2], mx.float32)
         self.assertEqual(x.dtype, mx.float32)
@@ -156,12 +158,12 @@ class TestArray(mlx_tests.MLXTestCase):
         x = mx.array([0.0, 1.0, 2.0])
         self.assertEqual(x.dtype, mx.float32)
         self.assertEqual(x.ndim, 1)
-        self.assertEqual(x.shape, [3])
+        self.assertEqual(x.shape, (3,))
 
         x = mx.array([1j, 1 + 0j])
         self.assertEqual(x.dtype, mx.complex64)
         self.assertEqual(x.ndim, 1)
-        self.assertEqual(x.shape, [2])
+        self.assertEqual(x.shape, (2,))
 
         # From tuple
         x = mx.array((1, 2, 3), mx.int32)
@@ -181,17 +183,17 @@ class TestArray(mlx_tests.MLXTestCase):
     def test_construction_from_lists(self):
         x = mx.array([])
         self.assertEqual(x.size, 0)
-        self.assertEqual(x.shape, [0])
+        self.assertEqual(x.shape, (0,))
         self.assertEqual(x.dtype, mx.float32)
 
         x = mx.array([[], [], []])
         self.assertEqual(x.size, 0)
-        self.assertEqual(x.shape, [3, 0])
+        self.assertEqual(x.shape, (3, 0))
         self.assertEqual(x.dtype, mx.float32)
 
         x = mx.array([[[], []], [[], []], [[], []]])
         self.assertEqual(x.size, 0)
-        self.assertEqual(x.shape, [3, 2, 0])
+        self.assertEqual(x.shape, (3, 2, 0))
         self.assertEqual(x.dtype, mx.float32)
 
         # Check failure cases
@@ -306,9 +308,9 @@ class TestArray(mlx_tests.MLXTestCase):
         self.assertEqual(y.dtype, mx.bool_)
         self.assertEqual(y.item(), True)
 
-        # y = mx.array(x, mx.complex64)
-        # self.assertEqual(y.dtype, mx.complex64)
-        # self.assertEqual(y.item(), 3.0+0j)
+        y = mx.array(x, mx.complex64)
+        self.assertEqual(y.dtype, mx.complex64)
+        self.assertEqual(y.item(), 3.0 + 0j)
 
     def test_array_repr(self):
         x = mx.array(True)
@@ -431,24 +433,32 @@ class TestArray(mlx_tests.MLXTestCase):
         x = mx.array(vals)
         self.assertEqual(x.tolist(), vals)
 
+        # Half types
+        vals = [1.0, 2.0, 3.0, 4.0, 5.0]
+        x = mx.array(vals, dtype=mx.float16)
+        self.assertEqual(x.tolist(), vals)
+
+        x = mx.array(vals, dtype=mx.bfloat16)
+        self.assertEqual(x.tolist(), vals)
+
     def test_array_np_conversion(self):
         # Shape test
         a = np.array([])
         x = mx.array(a)
         self.assertEqual(x.size, 0)
-        self.assertEqual(x.shape, [0])
+        self.assertEqual(x.shape, (0,))
         self.assertEqual(x.dtype, mx.float32)
 
         a = np.array([[], [], []])
         x = mx.array(a)
         self.assertEqual(x.size, 0)
-        self.assertEqual(x.shape, [3, 0])
+        self.assertEqual(x.shape, (3, 0))
         self.assertEqual(x.dtype, mx.float32)
 
         a = np.array([[[], []], [[], []], [[], []]])
         x = mx.array(a)
         self.assertEqual(x.size, 0)
-        self.assertEqual(x.shape, [3, 2, 0])
+        self.assertEqual(x.shape, (3, 2, 0))
         self.assertEqual(x.dtype, mx.float32)
 
         # Content test
@@ -456,7 +466,7 @@ class TestArray(mlx_tests.MLXTestCase):
         x = mx.array(a)
         self.assertEqual(x.dtype, mx.float32)
         self.assertEqual(x.ndim, 3)
-        self.assertEqual(x.shape, [3, 5, 4])
+        self.assertEqual(x.shape, (3, 5, 4))
 
         y = np.asarray(x)
         self.assertTrue(np.allclose(a, y))
@@ -465,7 +475,7 @@ class TestArray(mlx_tests.MLXTestCase):
         x = mx.array(a)
         self.assertEqual(x.dtype, mx.int32)
         self.assertEqual(x.ndim, 0)
-        self.assertEqual(x.shape, [])
+        self.assertEqual(x.shape, ())
         self.assertEqual(x.item(), 3)
 
         # mlx to numpy test
@@ -483,7 +493,7 @@ class TestArray(mlx_tests.MLXTestCase):
         x = np.array(cvals)
         y = mx.array(x)
         self.assertEqual(y.dtype, mx.complex64)
-        self.assertEqual(y.shape, [3])
+        self.assertEqual(y.shape, (3,))
         self.assertEqual(y.tolist(), cvals)
 
         y = mx.array([0j, 1, 1 + 1j])
@@ -523,6 +533,14 @@ class TestArray(mlx_tests.MLXTestCase):
             b_npy = np.array(b_mlx)
 
             self.assertEqual(b_npy.dtype, np_dtype)
+
+    def test_array_np_shape_dim_check(self):
+        a_npy = np.empty(2**31, dtype=np.bool_)
+        with self.assertRaises(ValueError) as e:
+            mx.array(a_npy)
+        self.assertEqual(
+            str(e.exception), "Shape dimension falls outside supported `int` range."
+        )
 
     def test_dtype_promotion(self):
         dtypes_list = [
@@ -649,7 +667,63 @@ class TestArray(mlx_tests.MLXTestCase):
         self.assertEqual(y.tolist(), [3.0, 4.0])
         self.assertEqual(z.tolist(), [5.0, 6.0])
 
+    def test_array_pickle(self):
+        dtypes = [
+            mx.int8,
+            mx.int16,
+            mx.int32,
+            mx.int64,
+            mx.uint8,
+            mx.uint16,
+            mx.uint32,
+            mx.uint64,
+            mx.float16,
+            mx.float32,
+            mx.complex64,
+        ]
+
+        for dtype in dtypes:
+            x = mx.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]], dtype=dtype)
+            state = pickle.dumps(x)
+            y = pickle.loads(state)
+            self.assertEqualArray(y, x)
+
+        # check if it throws an error when dtype is not supported (bfloat16)
+        x = mx.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]], dtype=mx.bfloat16)
+        with self.assertRaises(TypeError):
+            pickle.dumps(x)
+
+    def test_array_copy(self):
+        dtypes = [
+            mx.int8,
+            mx.int16,
+            mx.int32,
+            mx.int64,
+            mx.uint8,
+            mx.uint16,
+            mx.uint32,
+            mx.uint64,
+            mx.float16,
+            mx.float32,
+            mx.bfloat16,
+            mx.complex64,
+        ]
+
+        for copy_function in [copy, deepcopy]:
+            for dtype in dtypes:
+                x = mx.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]], dtype=dtype)
+                y = copy_function(x)
+                self.assertEqualArray(y, x)
+
+                y -= 1
+                self.assertEqualArray(y, x - 1)
+
     def test_indexing(self):
+        # Only ellipsis is a no-op
+        a_mlx = mx.array([1])[...]
+        self.assertEqual(a_mlx.shape, (1,))
+        self.assertEqual(a_mlx.item(), 1)
+
         # Basic content check, slice indexing
         a_npy = np.arange(64, dtype=np.float32)
         a_mlx = mx.array(a_npy)
@@ -688,6 +762,10 @@ class TestArray(mlx_tests.MLXTestCase):
         a_sliced_mlx = a_mlx[None]
         a_sliced_npy = np.asarray(a_sliced_mlx)
         self.assertTrue(np.array_equal(a_sliced_npy, a_npy[None]))
+
+        a_sliced_mlx = a_mlx[:, None]
+        a_sliced_npy = np.asarray(a_sliced_mlx)
+        self.assertTrue(np.array_equal(a_sliced_npy, a_npy[:, None]))
 
         # Multi dim indexing, all ints
         self.assertEqual(a_mlx[0, 0].item(), 0)
@@ -991,6 +1069,29 @@ class TestArray(mlx_tests.MLXTestCase):
         a = mx.zeros((5, 5), mx.int32)
         a[2:-2, 2:-2] = 4
         self.assertEqual(a[2, 2].item(), 4)
+
+        # Check slice array slice
+        check_slices(
+            np.zeros((5, 4, 4)),
+            np.arange(4 * 2 * 3).reshape(4, 2, 3),
+            slice(0, 4),
+            np.array([1, 3]),
+            slice(None, -1),
+        )
+        check_slices(
+            np.zeros((5, 4, 4)),
+            np.arange(4 * 2 * 2).reshape(4, 2, 2),
+            slice(0, 4),
+            np.array([1, 3]),
+            slice(0, 4, 2),
+        )
+
+        check_slices(
+            np.zeros((1, 10, 4)),
+            np.arange(2 * 4).reshape(1, 2, 4),
+            slice(None, None, None),
+            np.array([1, 3]),
+        )
 
     def test_array_at(self):
         a = mx.array(1)
@@ -1299,7 +1400,7 @@ class TestArray(mlx_tests.MLXTestCase):
         for mlx_dtype, tf_dtype, np_dtype in dtypes_list:
             a_np = np.random.uniform(low=0, high=100, size=(3, 4)).astype(np_dtype)
             a_tf = tf.constant(a_np, dtype=tf_dtype)
-            a_mx = mx.array(a_tf)
+            a_mx = mx.array(np.array(a_tf))
             for f in [
                 lambda x: x,
                 lambda x: tf.transpose(x) if isinstance(x, tf.Tensor) else x.T,
@@ -1380,6 +1481,30 @@ class TestArray(mlx_tests.MLXTestCase):
         b = a
         b @= a
         self.assertTrue(mx.array_equal(a, b))
+
+    def test_inplace_preserves_ids(self):
+        a = mx.array([1.0])
+        orig_id = id(a)
+        a += mx.array(2.0)
+        self.assertEqual(id(a), orig_id)
+
+        a[0] = 2.0
+        self.assertEqual(id(a), orig_id)
+
+        a -= mx.array(3.0)
+        self.assertEqual(id(a), orig_id)
+
+        a *= mx.array(3.0)
+        self.assertEqual(id(a), orig_id)
+
+    def test_load_from_pickled_np(self):
+        a = np.array([1, 2, 3], dtype=np.int32)
+        b = pickle.loads(pickle.dumps(a))
+        self.assertTrue(mx.array_equal(mx.array(a), mx.array(b)))
+
+        a = np.array([1.0, 2.0, 3.0], dtype=np.float16)
+        b = pickle.loads(pickle.dumps(a))
+        self.assertTrue(mx.array_equal(mx.array(a), mx.array(b)))
 
 
 if __name__ == "__main__":

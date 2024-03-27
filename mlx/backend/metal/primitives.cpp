@@ -1,11 +1,11 @@
-// Copyright © 2023 Apple Inc.
-
+// Copyright © 2023-2024 Apple Inc.
 #include <algorithm>
 #include <cassert>
 #include <numeric>
 #include <sstream>
 
 #include "mlx/backend/common/binary.h"
+#include "mlx/backend/common/ternary.h"
 #include "mlx/backend/metal/copy.h"
 #include "mlx/backend/metal/device.h"
 #include "mlx/backend/metal/kernels/defines.h"
@@ -17,7 +17,7 @@ namespace mlx::core {
 
 namespace {
 
-static constexpr int METAL_MAX_INDEX_ARRAYS = 10;
+constexpr int METAL_MAX_INDEX_ARRAYS = 10;
 
 void binary_op(
     const std::vector<array>& inputs,
@@ -43,24 +43,25 @@ void binary_op(
 
   std::ostringstream kname;
   switch (bopt) {
-    case ScalarScalar:
+    case BinaryOpType::ScalarScalar:
       kname << "ss";
       break;
-    case ScalarVector:
+    case BinaryOpType::ScalarVector:
       kname << "sv";
       break;
-    case VectorScalar:
+    case BinaryOpType::VectorScalar:
       kname << "vs";
       break;
-    case VectorVector:
+    case BinaryOpType::VectorVector:
       kname << "vv";
       break;
-    case General:
+    case BinaryOpType::General:
       kname << "g";
       break;
   }
   kname << op << type_to_name(a);
-  if (bopt == General && shape.size() <= MAX_BINARY_SPECIALIZED_DIMS) {
+  if (bopt == BinaryOpType::General &&
+      shape.size() <= MAX_BINARY_SPECIALIZED_DIMS) {
     kname << "_" << shape.size();
   }
 
@@ -80,7 +81,7 @@ void binary_op(
   set_array_buffer(compute_encoder, outputs[0], 2);
   set_array_buffer(compute_encoder, outputs[1], 3);
 
-  if (bopt == General) {
+  if (bopt == BinaryOpType::General) {
     auto ndim = shape.size();
     if (ndim > 3) {
       compute_encoder->setBytes(shape.data(), ndim * sizeof(int), 4);
@@ -141,24 +142,25 @@ void binary_op(
 
   std::ostringstream kname;
   switch (bopt) {
-    case ScalarScalar:
+    case BinaryOpType::ScalarScalar:
       kname << "ss";
       break;
-    case ScalarVector:
+    case BinaryOpType::ScalarVector:
       kname << "sv";
       break;
-    case VectorScalar:
+    case BinaryOpType::VectorScalar:
       kname << "vs";
       break;
-    case VectorVector:
+    case BinaryOpType::VectorVector:
       kname << "vv";
       break;
-    case General:
+    case BinaryOpType::General:
       kname << "g";
       break;
   }
   kname << op << type_to_name(a);
-  if (bopt == General && shape.size() <= MAX_BINARY_SPECIALIZED_DIMS) {
+  if (bopt == BinaryOpType::General &&
+      shape.size() <= MAX_BINARY_SPECIALIZED_DIMS) {
     kname << "_" << shape.size();
   }
 
@@ -173,7 +175,7 @@ void binary_op(
   set_array_buffer(compute_encoder, donate_b ? out : b, 1);
   set_array_buffer(compute_encoder, out, 2);
 
-  if (bopt == General) {
+  if (bopt == BinaryOpType::General) {
     auto ndim = shape.size();
     if (ndim > 3) {
       compute_encoder->setBytes(shape.data(), ndim * sizeof(int), 3);
@@ -202,7 +204,94 @@ void binary_op(
     compute_encoder->dispatchThreads(grid_dims, group_dims);
   } else {
     // Launch a 1D grid of threads
-    size_t nthreads = bopt == General ? out.size() : out.data_size();
+    size_t nthreads =
+        bopt == BinaryOpType::General ? out.size() : out.data_size();
+    MTL::Size grid_dims = MTL::Size(nthreads, 1, 1);
+    NS::UInteger thread_group_size = kernel->maxTotalThreadsPerThreadgroup();
+    if (thread_group_size > nthreads) {
+      thread_group_size = nthreads;
+    }
+    MTL::Size group_dims = MTL::Size(thread_group_size, 1, 1);
+    compute_encoder->dispatchThreads(grid_dims, group_dims);
+  }
+}
+
+void ternary_op(
+    const std::vector<array>& inputs,
+    array& out,
+    const std::string op) {
+  assert(inputs.size() == 3);
+  auto& a = inputs[0];
+  auto& b = inputs[1];
+  auto& c = inputs[2];
+  TernaryOpType topt = get_ternary_op_type(a, b, c);
+  set_ternary_op_output_data(a, b, c, out, topt, true /* donate_with_move */);
+
+  if (out.size() == 0) {
+    return;
+  }
+
+  // Try to collapse contiguous dims
+  auto [shape, strides] = collapse_contiguous_dims(a, b, c, out);
+  auto& strides_a = strides[0];
+  auto& strides_b = strides[1];
+  auto& strides_c = strides[2];
+  auto& strides_out = strides[3];
+
+  std::ostringstream kname;
+  if (topt == TernaryOpType::General) {
+    kname << "g";
+    kname << op << type_to_name(b);
+    if (shape.size() <= MAX_BINARY_SPECIALIZED_DIMS) {
+      kname << "_" << shape.size();
+    }
+  } else {
+    kname << "v";
+    kname << op << type_to_name(b);
+  }
+
+  auto& s = out.primitive().stream();
+  auto& d = metal::device(s.device);
+  auto kernel = d.get_kernel(kname.str());
+  auto compute_encoder = d.get_command_encoder(s.index);
+  compute_encoder->setComputePipelineState(kernel);
+  set_array_buffer(compute_encoder, a, 0);
+  set_array_buffer(compute_encoder, b, 1);
+  set_array_buffer(compute_encoder, c, 2);
+  set_array_buffer(compute_encoder, out, 3);
+
+  if (topt == TernaryOpType::General) {
+    auto ndim = shape.size();
+    if (ndim > 3) {
+      compute_encoder->setBytes(shape.data(), ndim * sizeof(int), 4);
+      compute_encoder->setBytes(strides_a.data(), ndim * sizeof(size_t), 5);
+      compute_encoder->setBytes(strides_b.data(), ndim * sizeof(size_t), 6);
+      compute_encoder->setBytes(strides_c.data(), ndim * sizeof(size_t), 7);
+
+      if (ndim > MAX_BINARY_SPECIALIZED_DIMS) {
+        compute_encoder->setBytes(&ndim, sizeof(int), 8);
+      }
+    } else {
+      // The shape is implicit in the grid for <= 3D
+      compute_encoder->setBytes(strides_a.data(), ndim * sizeof(size_t), 4);
+      compute_encoder->setBytes(strides_b.data(), ndim * sizeof(size_t), 5);
+      compute_encoder->setBytes(strides_c.data(), ndim * sizeof(size_t), 6);
+    }
+
+    // Launch up to 3D grid of threads
+    size_t dim0 = ndim > 0 ? shape[ndim - 1] : 1;
+    size_t dim1 = ndim > 1 ? shape[ndim - 2] : 1;
+    size_t rest = out.size() / (dim0 * dim1);
+    NS::UInteger thread_group_size = kernel->maxTotalThreadsPerThreadgroup();
+    if (thread_group_size != 1024) {
+      throw std::runtime_error("[Metal::binary] Must use 1024 sized block");
+    }
+    MTL::Size group_dims = get_block_dims(dim0, dim1, rest);
+    MTL::Size grid_dims = MTL::Size(dim0, dim1, rest);
+    compute_encoder->dispatchThreads(grid_dims, group_dims);
+  } else {
+    // Launch a 1D grid of threads
+    size_t nthreads = out.data_size();
     MTL::Size grid_dims = MTL::Size(nthreads, 1, 1);
     NS::UInteger thread_group_size = kernel->maxTotalThreadsPerThreadgroup();
     if (thread_group_size > nthreads) {
@@ -430,8 +519,6 @@ void ArgReduce::eval_gpu(const std::vector<array>& inputs, array& out) {
     compute_encoder->setBytes(&ndim, sizeof(size_t), 5);
     compute_encoder->setBytes(&axis_stride, sizeof(size_t), 6);
     compute_encoder->setBytes(&axis_size, sizeof(size_t), 7);
-    compute_encoder->setThreadgroupMemoryLength(
-        simd_size * (sizeof(uint32_t) + in.itemsize()), 0);
     compute_encoder->dispatchThreads(grid_dims, group_dims);
   }
 }
@@ -484,6 +571,18 @@ void Cos::eval_gpu(const std::vector<array>& inputs, array& out) {
 
 void Cosh::eval_gpu(const std::vector<array>& inputs, array& out) {
   unary_op(inputs, out, "cosh");
+}
+
+void CustomVJP::eval_gpu(
+    const std::vector<array>& inputs,
+    std::vector<array>& outputs) {
+  eval(inputs, outputs);
+}
+
+void Depends::eval_gpu(
+    const std::vector<array>& inputs,
+    std::vector<array>& outputs) {
+  eval(inputs, outputs);
 }
 
 void Divide::eval_gpu(const std::vector<array>& inputs, array& out) {
@@ -597,6 +696,10 @@ void Minimum::eval_gpu(const std::vector<array>& inputs, array& out) {
   binary_op(inputs, out, "min");
 }
 
+void NumberOfElements::eval_gpu(const std::vector<array>& inputs, array& out) {
+  eval(inputs, out);
+}
+
 void Floor::eval_gpu(const std::vector<array>& inputs, array& out) {
   unary_op(inputs, out, "floor");
 }
@@ -607,6 +710,10 @@ void Ceil::eval_gpu(const std::vector<array>& inputs, array& out) {
 
 void Multiply::eval_gpu(const std::vector<array>& inputs, array& out) {
   binary_op(inputs, out, "mul");
+}
+
+void Select::eval_gpu(const std::vector<array>& inputs, array& out) {
+  ternary_op(inputs, out, "select");
 }
 
 void Negative::eval_gpu(const std::vector<array>& inputs, array& out) {
@@ -679,7 +786,6 @@ void RandomBits::eval_gpu(const std::vector<array>& inputs, array& out) {
   // organize into grid nkeys x elem_per_key
   MTL::Size grid_dims = MTL::Size(num_keys, half_size + odd, 1);
   NS::UInteger thread_group_size = kernel->maxTotalThreadsPerThreadgroup();
-  auto nthreads = std::min(num_keys * (half_size + odd), thread_group_size);
   MTL::Size group_dims = MTL::Size(thread_group_size, 1, 1);
   auto compute_encoder = d.get_command_encoder(s.index);
   compute_encoder->setComputePipelineState(kernel);
@@ -703,20 +809,20 @@ void RandomBits::eval_gpu(const std::vector<array>& inputs, array& out) {
 void Reshape::eval_gpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (in.flags().row_contiguous) {
-    auto flags = in.flags();
-    auto max_dim = std::max_element(out.shape().begin(), out.shape().end());
-    flags.col_contiguous = out.size() <= 1 || out.size() == *max_dim;
-    out.copy_shared_buffer(in, out.strides(), flags, in.data_size());
-  } else {
+
+  auto [copy_necessary, out_strides] = prepare_reshape(in, out);
+
+  if (copy_necessary) {
     copy_gpu(in, out, CopyType::General);
+  } else {
+    shared_buffer_reshape(in, out_strides, out);
   }
 }
 
 void Round::eval_gpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 1);
   const auto& in = inputs[0];
-  if (not is_integral(in.dtype())) {
+  if (issubdtype(in.dtype(), inexact)) {
     unary_op(inputs, out, "round");
   } else {
     // No-op integer types
@@ -759,7 +865,73 @@ void Sqrt::eval_gpu(const std::vector<array>& inputs, array& out) {
 }
 
 void Slice::eval_gpu(const std::vector<array>& inputs, array& out) {
-  eval(inputs, out);
+  assert(inputs.size() == 1);
+  if (out.size() == 0) {
+    out.set_data(nullptr);
+    return;
+  }
+
+  auto& in = inputs[0];
+
+  // Calculate out strides, initial offset and if copy needs to be made
+  auto [copy_needed, data_offset, inp_strides] = prepare_slice(in);
+
+  // Do copy if needed
+  if (copy_needed) {
+    out.set_data(allocator::malloc_or_wait(out.nbytes()));
+    std::vector<int64_t> ostrides{out.strides().begin(), out.strides().end()};
+    copy_gpu_inplace(
+        /* const array& in = */ in,
+        /* array& out = */ out,
+        /* const std::vector<int>& data_shape = */ out.shape(),
+        /* const std::vector<stride_t>& i_strides = */ inp_strides,
+        /* const std::vector<stride_t>& o_strides = */ ostrides,
+        /* int64_t i_offset = */ data_offset,
+        /* int64_t o_offset = */ 0,
+        /* CopyType ctype = */ CopyType::General,
+        /* const Stream& s = */ stream());
+  } else {
+    std::vector<size_t> ostrides{inp_strides.begin(), inp_strides.end()};
+    shared_buffer_slice(in, ostrides, data_offset, out);
+  }
+}
+
+void SliceUpdate::eval_gpu(const std::vector<array>& inputs, array& out) {
+  assert(inputs.size() == 2);
+  if (out.size() == 0) {
+    out.set_data(nullptr);
+    return;
+  }
+
+  auto& in = inputs[0];
+  auto& upd = inputs[1];
+
+  if (upd.size() == 0) {
+    out.copy_shared_buffer(in);
+    return;
+  }
+
+  // Check if materialization is needed
+  auto ctype = in.flags().contiguous && in.size() == in.data_size()
+      ? CopyType::Vector
+      : CopyType::General;
+  copy_gpu(in, out, in.data_size() == 1 ? CopyType::Scalar : ctype, stream());
+
+  // Calculate out strides, initial offset and if copy needs to be made
+  auto [data_offset, out_strides] = prepare_slice(out);
+
+  // Do copy
+  std::vector<int64_t> upd_strides{upd.strides().begin(), upd.strides().end()};
+  copy_gpu_inplace<int64_t>(
+      /* const array& src = */ upd,
+      /* array& dst = */ out,
+      /* const std::vector<int>& data_shape = */ upd.shape(),
+      /* const std::vector<stride_t>& i_strides = */ upd_strides,
+      /* const std::vector<stride_t>& o_strides = */ out_strides,
+      /* int64_t i_offset = */ 0,
+      /* int64_t o_offset = */ data_offset,
+      /* CopyType ctype = */ CopyType::GeneralGeneral,
+      /* const Stream& s = */ stream());
 }
 
 void StopGradient::eval_gpu(const std::vector<array>& inputs, array& out) {
@@ -786,6 +958,16 @@ void QRF::eval_gpu(
     const std::vector<array>& inputs,
     std::vector<array>& outputs) {
   throw std::runtime_error("[QRF::eval_gpu] Metal QR factorization NYI.");
+}
+
+void SVD::eval_gpu(
+    const std::vector<array>& inputs,
+    std::vector<array>& outputs) {
+  throw std::runtime_error("[SVD::eval_gpu] Metal SVD NYI.");
+}
+
+void Inverse::eval_gpu(const std::vector<array>& inputs, array& output) {
+  throw std::runtime_error("[Inverse::eval_gpu] Metal inversion NYI.");
 }
 
 } // namespace mlx::core

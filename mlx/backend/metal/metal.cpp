@@ -1,4 +1,4 @@
-// Copyright © 2023 Apple Inc.
+// Copyright © 2023-2024 Apple Inc.
 
 #include <cstdlib>
 #include <future>
@@ -9,6 +9,10 @@
 #include "mlx/scheduler.h"
 
 namespace mlx::core::metal {
+
+bool is_available() {
+  return true;
+}
 
 int max_ops_per_buffer() {
   auto get_val = []() {
@@ -63,7 +67,15 @@ std::function<void()> make_task(
     auto s = arr.primitive().stream();
     auto command_buffer = increment_command_buffer(s);
     auto outputs = arr.outputs();
-    arr.primitive().eval_gpu(arr.inputs(), outputs);
+    {
+      // If the array is a tracer hold a reference
+      // to its inputs so they don't get donated
+      std::vector<array> inputs;
+      if (arr.is_tracer()) {
+        inputs = arr.inputs();
+      }
+      arr.primitive().eval_gpu(arr.inputs(), outputs);
+    }
     std::vector<std::shared_ptr<array::Data>> buffers;
     for (auto& in : arr.inputs()) {
       buffers.push_back(in.data_shared_ptr());

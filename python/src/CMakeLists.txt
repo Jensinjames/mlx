@@ -1,8 +1,12 @@
-pybind11_add_module(
+nanobind_add_module(
   core
+  NB_STATIC STABLE_ABI LTO NOMINSIZE
+  NB_DOMAIN mlx
   ${CMAKE_CURRENT_SOURCE_DIR}/mlx.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/array.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/convert.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/device.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/fast.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/fft.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/indexing.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/load.cpp
@@ -13,6 +17,7 @@ pybind11_add_module(
   ${CMAKE_CURRENT_SOURCE_DIR}/random.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/linalg.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/constants.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/trees.cpp
 )
 
 if (NOT MLX_PYTHON_BINDINGS_OUTPUT_DIRECTORY)
